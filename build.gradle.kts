@@ -19,9 +19,14 @@ dependencies {
     testImplementation(kotlin("test"))
 }
 
+tasks.build {
+    dependsOn("copyPreCommitHook")
+}
+
 tasks.test {
     useJUnitPlatform()
 }
+
 kotlin {
     jvmToolchain(17)
 }
