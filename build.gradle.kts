@@ -7,13 +7,14 @@ version = "1.0-SNAPSHOT"
 
 repositories {
     mavenCentral()
+    // Kord Snapshots Repository (Optional):
+    maven("https://oss.sonatype.org/content/repositories/snapshots")
 }
 
 dependencies {
 
-    implementation("net.dv8tion:JDA:5.0.0")
+    implementation("dev.kord:kord-core:0.14.0")
     implementation ("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3")
-    implementation("club.minnced:jda-ktx:0.11.0-beta.19")
     implementation("io.github.cdimascio:dotenv-kotlin:6.4.1")
 
     testImplementation(kotlin("test"))
