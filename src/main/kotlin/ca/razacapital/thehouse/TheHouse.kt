@@ -1,13 +1,17 @@
 package ca.razacapital.thehouse
 
-import dev.kord.core.Kord
-import io.github.cdimascio.dotenv.dotenv
-
-
-private val dotenv = dotenv()
+import ca.razacapital.thehouse.extensions.PingExtension
+import ca.razacapital.thehouse.utils.DISCORD_TOKEN
+import com.kotlindiscord.kord.extensions.ExtensibleBot
 
 suspend fun main() {
-    val discordToken = dotenv["DISCORD_CLIENT_SECRET"]
-    val kord = Kord(discordToken)
-    kord.login()
+    val bot = ExtensibleBot(DISCORD_TOKEN) {
+
+        extensions {
+            add(::PingExtension)
+        }
+
+    }
+
+    bot.start()
 }
