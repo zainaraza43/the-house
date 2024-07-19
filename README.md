@@ -7,7 +7,7 @@ A betting Discord bot project. (more coming soon)
 ### Prerequisites
 
 - Docker
-- Docker Compose (optional, for multi-container setups)
+- Docker Compose
 
 ### Setting up the Project
 
