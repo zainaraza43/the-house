@@ -19,12 +19,7 @@ A betting Discord bot project. (more coming soon)
 
 ### Running the Project with Docker
 
-1. **Build the Docker image:**
+- **Run the Project with Docker Compose:**
     ```sh
-   docker build -t the-house .
+   docker-compose up --build
     ```
-2. **Run the Docker container:**
-    ```sh
-   docker run --env-file .env -p 8000:8000 the-house
-    ```
-   Replace `8000:8000` with the appropriate port if your application runs on a different port.
