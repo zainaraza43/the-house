@@ -1,10 +1,8 @@
-import os
-import sys
 import logging
+
 import discord
 from discord import app_commands
 from discord.ext import commands
-
 
 from config import DISCORD_TOKEN
 from utils import create_user
@@ -26,9 +24,9 @@ async def on_ready():
     print(f'Bot is ready. Logged in as {bot.user}')
 
 
-@bot.tree.command(name="add-league-of-legends-account", description="Add a League of Legends account")
+@bot.tree.command(name="set-league-of-legends-account", description="Add a League of Legends account")
 @app_commands.describe(username="The League of Legends username to add")
-async def add_league_of_legends_account(interaction: discord.Interaction, username: str):
+async def set_league_of_legends_account(interaction: discord.Interaction, username: str):
     create_user(interaction.user.id)
     await interaction.response.send_message(f'Account name "{username}" has been set.')
 
