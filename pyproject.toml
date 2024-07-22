@@ -12,6 +12,7 @@ python-dotenv = "^1.0.1"
 sqlalchemy = "^2.0.31"
 psycopg2-binary = "^2.9.9"
 requests = "^2.32.3"
+aiohttp = "^3.9.5"
 
 
 [build-system]

@@ -1,14 +1,16 @@
-import os
+import logging
 
 import requests
 
 from models import User, LeagueOfLegendsAccount, Guild
 from services import _Services
+from config import RIOT_API_KEY
 
 services = _Services()
-RIOT_API_KEY = os.getenv('RIOT_API_KEY')
 
 BASE_URL_AMERICAS = "https://americas.api.riotgames.com"
+
+lol_accounts = {}
 
 
 def create_user(discord_account_id: int):
@@ -61,6 +63,13 @@ def get_match_details(match_id):
     return response.json()
 
 
+def get_live_match_details(puuid: str, region: str):
+    url = f"https://{region}.api.riotgames.com/lol/spectator/v4/active-games/by-puuid/{puuid}?api_key={RIOT_API_KEY}"
+    response = requests.get(url)
+    logging.info(response.json())
+    return response.json()
+
+
 def set_lol_account(user_id: int, guild_id: int, region: str, puuid: str):
     db = services.db
     existing_account = db.query(LeagueOfLegendsAccount).filter_by(
@@ -81,3 +90,36 @@ def set_lol_account(user_id: int, guild_id: int, region: str, puuid: str):
         )
         db.add(new_account)
         db.commit()
+
+
+async def update_lol_accounts():
+    db = services.db
+    accounts = db.query(LeagueOfLegendsAccount).all()
+
+    for account in accounts:
+        try:
+            match_ids = get_match_ids_by_puuid(account.puuid, count=1)
+            last_match_id = match_ids[0]
+            match_details = get_match_details(last_match_id)
+            last_match_game_id = match_details['info']['gameId']
+            live_match_details = get_live_match_details(account.puuid, account.region)
+            live_match_game_id = live_match_details.get('gameId', None)
+            logging.info(f"Last match for {account.puuid}: {last_match_game_id} | Live match: {live_match_game_id}")
+
+            if not live_match_game_id:
+                # game just ended
+                if lol_accounts.get(account.puuid, {}).get('live_match') == last_match_game_id:
+                    logging.info(
+                        f"Game just ended for {account.puuid} ({lol_accounts[account.puuid]} == {last_match_game_id})")
+            else:
+                if lol_accounts.get(account.puuid, {}).get('live_match') != live_match_game_id:
+                    logging.info(
+                        f"Game started for {account.puuid} ({lol_accounts[account.puuid]} != {live_match_game_id})")
+
+            lol_accounts[account.puuid] = {
+                'last_match': last_match_game_id,
+                'live_match': live_match_game_id
+            }
+
+        except Exception as e:
+            logging.error(f"Error processing account {account.puuid}: {e}")

@@ -1,4 +1,6 @@
+import asyncio
 import logging
+import threading
 
 import discord
 from discord import app_commands
@@ -6,7 +8,7 @@ from discord.ext import commands
 
 from config import DISCORD_TOKEN
 from utils import get_account_by_riot_id, get_summoner_by_puuid, set_lol_account, create_user, create_guild, \
-    get_user_by_discord_account_id, get_guild_by_guild_id
+    get_user_by_discord_account_id, get_guild_by_guild_id, update_lol_accounts
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -21,6 +23,8 @@ async def on_ready():
     except Exception as e:
         print(e)
     print(f'Bot is ready. Logged in as {bot.user}')
+
+    start_updating_thread()
 
 
 @bot.tree.command(name="set-league-of-legends-account", description="Add a League of Legends account")
@@ -89,6 +93,23 @@ async def set_league_of_legends_account(interaction: discord.Interaction, region
         logging.error(f"Error processing League of Legends account: {e}")
         await interaction.response.send_message(
             "An error occurred while setting the League of Legends account. Please try again later.")
+
+
+def start_updating_accounts_task(loop):
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(update_lol_accounts())
+
+
+async def update_accounts():
+    while True:
+        await update_lol_accounts()
+        await asyncio.sleep(5)
+
+
+def start_updating_thread():
+    loop = asyncio.new_event_loop()
+    t = threading.Thread(target=start_updating_accounts_task, args=(loop,))
+    t.start()
 
 
 if __name__ == '__main__':
