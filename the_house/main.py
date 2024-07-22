@@ -13,6 +13,8 @@ from utils import get_account_by_riot_id, get_summoner_by_puuid, set_lol_account
 intents = discord.Intents.default()
 intents.message_content = True
 
+logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
+
 bot = commands.Bot(command_prefix='!', intents=intents)
 
 
@@ -97,10 +99,11 @@ async def set_league_of_legends_account(interaction: discord.Interaction, region
 
 def start_updating_accounts_task(loop):
     asyncio.set_event_loop(loop)
-    loop.run_until_complete(update_lol_accounts())
+    loop.run_until_complete(update_accounts())
 
 
 async def update_accounts():
+    print("Updating accounts...")
     while True:
         await update_lol_accounts()
         await asyncio.sleep(5)
