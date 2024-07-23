@@ -1,5 +1,8 @@
 from functools import cached_property
 
+import discord
+from discord import app_commands
+from discord.ext import commands
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session, scoped_session
 
@@ -15,3 +18,14 @@ class _Services:
     @cached_property
     def db(self) -> Session:
         return SessionLocal()
+
+    @cached_property
+    def bot(self) -> discord.Client:
+        intents = discord.Intents.default()
+        intents.message_content = True
+        bot = commands.Bot(command_prefix='!', intents=intents)
+
+        return bot
+
+
+services = _Services()
