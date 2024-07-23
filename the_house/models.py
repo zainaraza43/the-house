@@ -11,6 +11,7 @@ class User(Base):
     discord_account_id = Column(BigInteger, unique=True, nullable=False)
 
     lol_accounts = relationship('LeagueOfLegendsAccount', back_populates='user')
+    banks = relationship('Bank', back_populates='user')
 
 
 class Guild(Base):
@@ -21,6 +22,7 @@ class Guild(Base):
     currency = Column(String, default='coins')
 
     lol_accounts = relationship('LeagueOfLegendsAccount', back_populates='guild')
+    banks = relationship('Bank', back_populates='guild')
 
 
 class Bank(Base):

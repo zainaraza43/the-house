@@ -29,6 +29,17 @@ async def on_ready():
     start_updating_thread()
 
 
+@bot.tree.command(name="set-betting-channel", description="Set the betting channel")
+@app_commands.checks.has_permissions(manage_guild=True)
+async def set_betting_channel(interaction: discord.Interaction):
+    guild = get_guild_by_guild_id(interaction.guild.id)
+    if not guild:
+        guild = create_guild(interaction.guild.id)
+
+    guild.channel_id = interaction.channel.id
+    await interaction.response.send_message(f'Betting channel has been set to {interaction.channel.mention}.')
+
+
 @bot.tree.command(name="set-league-of-legends-account", description="Add a League of Legends account")
 @app_commands.describe(riot_id="The Riot ID in the format `USERNAME#TAGLINE`", region="The region of the account")
 @app_commands.choices(region=[
