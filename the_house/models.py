@@ -17,8 +17,23 @@ class Guild(Base):
     __tablename__ = 'guilds'
     id = Column(Integer, primary_key=True)
     guild_id = Column(BigInteger, unique=True, nullable=False)
+    channel_id = Column(BigInteger, nullable=True)
+    currency = Column(String, default='coins')
 
     lol_accounts = relationship('LeagueOfLegendsAccount', back_populates='guild')
+
+
+class Bank(Base):
+    __tablename__ = 'banks'
+    id = Column(Integer, primary_key=True)
+    coins = Column(Integer, default=0)
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+    guild_id = Column(Integer, ForeignKey('guilds.id'), nullable=False)
+
+    __table_args__ = (UniqueConstraint('user_id', 'guild_id', name='_user_guild_bank_uc'),)
+
+    user = relationship('User', back_populates='banks')
+    guild = relationship('Guild', back_populates='banks')
 
 
 class LeagueOfLegendsAccount(Base):

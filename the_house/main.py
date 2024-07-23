@@ -103,7 +103,6 @@ def start_updating_accounts_task(loop):
 
 
 async def update_accounts():
-    print("Updating accounts...")
     while True:
         await update_lol_accounts()
         await asyncio.sleep(5)
