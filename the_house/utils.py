@@ -124,7 +124,7 @@ async def update_lol_accounts():
                         logging.info(
                             f"Game started for {account.puuid} ({lol_accounts[account.puuid]} != {live_match_game_id})")
                         await send_discord_message(account.guild.guild_id, account.guild.channel_id,
-                                                   f"Game just ended for <@{account.user.discord_account_id}>")
+                                                   f"Game just started for <@{account.user.discord_account_id}>")
 
             lol_accounts[account.puuid] = {
                 'last_match': last_match_game_id,
