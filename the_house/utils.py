@@ -6,9 +6,9 @@ import discord
 import requests
 from discord import app_commands
 
+from config import RIOT_API_KEY
 from models import User, LeagueOfLegendsAccount, Guild
 from services import services
-from config import RIOT_API_KEY
 
 bot = services.bot
 
@@ -111,20 +111,20 @@ async def update_lol_accounts():
             live_match_details = get_live_match_details(account.puuid, account.region)
             live_match_game_id = live_match_details.get('gameId', None)
 
-            logging.info(
-                f"Last match for {account.puuid}: {last_match_game_id} | Live match: {live_match_game_id} | "
-                f"lol_accounts={lol_accounts}")
-
             if lol_accounts.get(account.puuid, None) is not None:
                 if not live_match_game_id:
                     # game just ended
                     if lol_accounts.get(account.puuid).get('live_match', None) == last_match_game_id:
                         logging.info(
                             f"Game just ended for {account.puuid} ({lol_accounts[account.puuid]} == {last_match_game_id})")
+                        await send_discord_message(account.guild.guild_id, account.guild.channel_id,
+                                                   f"Game just ended for <@{account.user.discord_account_id}>")
                 else:
                     if lol_accounts.get(account.puuid).get('live_match', None) != live_match_game_id:
                         logging.info(
                             f"Game started for {account.puuid} ({lol_accounts[account.puuid]} != {live_match_game_id})")
+                        await send_discord_message(account.guild.guild_id, account.guild.channel_id,
+                                                   f"Game just ended for <@{account.user.discord_account_id}>")
 
             lol_accounts[account.puuid] = {
                 'last_match': last_match_game_id,
@@ -145,7 +145,7 @@ async def on_ready():
         print(e)
     print(f'Bot is ready. Logged in as {bot.user}')
 
-    start_updating_thread()
+    await asyncio.create_task(update_accounts())
 
 
 @bot.tree.command(name="set-betting-channel", description="Set the betting channel")
@@ -227,18 +227,18 @@ async def set_league_of_legends_account(interaction: discord.Interaction, region
             "An error occurred while setting the League of Legends account. Please try again later.")
 
 
-def start_updating_accounts_task(loop):
-    asyncio.set_event_loop(loop)
-    loop.run_until_complete(update_accounts())
+async def send_discord_message(guild_id, channel_id, message, timeout=3):
+    try:
+        guild = discord.utils.get(bot.guilds, id=guild_id)
+        if guild:
+            channel = bot.get_channel(channel_id)
+            if channel:
+                await asyncio.wait_for(channel.send(message), timeout=timeout)
+    except asyncio.TimeoutError:
+        logging.error(f"Sending message timed out after {timeout} seconds")
 
 
 async def update_accounts():
     while True:
         await update_lol_accounts()
         await asyncio.sleep(5)
-
-
-def start_updating_thread():
-    loop = asyncio.new_event_loop()
-    t = threading.Thread(target=start_updating_accounts_task, args=(loop,))
-    t.start()
