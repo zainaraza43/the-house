@@ -57,8 +57,12 @@ def get_summoner_by_puuid(puuid: str, region: str):
     return response.json()
 
 
-def get_match_ids_by_puuid(puuid: str, start=0, count=1):
-    url = f"{BASE_URL_AMERICAS}/lol/match/v5/matches/by-puuid/{puuid}/ids?start={start}&count={count}&api_key={RIOT_API_KEY}"
+def get_match_ids_by_puuid(puuid: str, start=0, count=1, queue_id=None):
+    if queue_id is not None:
+        url = f"{BASE_URL_AMERICAS}/lol/match/v5/matches/by-puuid/{puuid}/ids?queue={queue_id}&start={start}&count={count}&api_key={RIOT_API_KEY}"
+    else:
+        url = f"{BASE_URL_AMERICAS}/lol/match/v5/matches/by-puuid/{puuid}/ids?start={start}&count={count}&api_key={RIOT_API_KEY}"
+
     response = requests.get(url)
     return response.json()
 
@@ -74,6 +78,26 @@ def get_live_match_details(puuid: str, region: str):
     response = requests.get(url)
     logging.info(response.json())
     return response.json()
+
+
+def calculate_odds(puuid: str, queue_id=int):
+    total_games = 20
+    wins = 0
+    match_ids = get_match_ids_by_puuid(puuid=puuid, count=total_games, queue_id=queue_id)
+    for match_id in match_ids:
+        match_details = get_match_details(match_id)
+        for participant in match_details['info']['participants']:
+            if participant['puuid'] == puuid:
+                if participant['win']:
+                    wins += 1
+                break
+
+    win_rate = wins / total_games if total_games != 0 else 0.5
+    lose_rate = 1 - win_rate
+    win_odds = 1 / win_rate if win_rate != 0 else float('inf')
+    lose_odds = 1 / lose_rate if lose_rate != 0 else float('inf')
+
+    return win_odds, lose_odds
 
 
 def set_lol_account(user_id: int, guild_id: int, region: str, puuid: str):
@@ -122,11 +146,16 @@ async def update_lol_accounts():
                                                    f"Game just ended for <@{account.user.discord_account_id}>")
                 else:
                     if lol_accounts.get(account.puuid).get('live_match', None) != live_match_game_id:
+                        queue_id = live_match_details['gameQueueConfigId']
+                        win_odds, lose_odds = calculate_odds(account.puuid, queue_id)
                         new_game_bet = {
                             "game_id": live_match_game_id,
                             "match_id": None,
-                            "win_odds": 1.5,
+                            "win_odds": win_odds,
+                            "lose_odds": lose_odds,
+                            "bets": {}
                         }
+                        bets[account.puuid] = new_game_bet
                         await send_match_start_discord_message(account.guild.guild_id, account.guild.channel_id,
                                                    f"Game just started for <@{account.user.discord_account_id}>")
 
