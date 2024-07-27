@@ -28,7 +28,7 @@ class Guild(Base):
 class Bank(Base):
     __tablename__ = 'banks'
     id = Column(Integer, primary_key=True)
-    coins = Column(Integer, default=0)
+    coins = Column(Integer, default=50)
     user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
     guild_id = Column(Integer, ForeignKey('guilds.id'), nullable=False)
 

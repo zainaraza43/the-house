@@ -16,6 +16,7 @@ BASE_URL_AMERICAS = "https://americas.api.riotgames.com"
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
 
 lol_accounts = {}
+bets = {}
 
 
 def create_user(discord_account_id: int):
@@ -117,13 +118,16 @@ async def update_lol_accounts():
                     if lol_accounts.get(account.puuid).get('live_match', None) == last_match_game_id:
                         logging.info(
                             f"Game just ended for {account.puuid} ({lol_accounts[account.puuid]} == {last_match_game_id})")
-                        await send_discord_message(account.guild.guild_id, account.guild.channel_id,
+                        await send_match_start_discord_message(account.guild.guild_id, account.guild.channel_id,
                                                    f"Game just ended for <@{account.user.discord_account_id}>")
                 else:
                     if lol_accounts.get(account.puuid).get('live_match', None) != live_match_game_id:
-                        logging.info(
-                            f"Game started for {account.puuid} ({lol_accounts[account.puuid]} != {live_match_game_id})")
-                        await send_discord_message(account.guild.guild_id, account.guild.channel_id,
+                        new_game_bet = {
+                            "game_id": live_match_game_id,
+                            "match_id": None,
+                            "win_odds": 1.5,
+                        }
+                        await send_match_start_discord_message(account.guild.guild_id, account.guild.channel_id,
                                                    f"Game just started for <@{account.user.discord_account_id}>")
 
             lol_accounts[account.puuid] = {
@@ -227,7 +231,7 @@ async def set_league_of_legends_account(interaction: discord.Interaction, region
             "An error occurred while setting the League of Legends account. Please try again later.")
 
 
-async def send_discord_message(guild_id, channel_id, message, timeout=3):
+async def send_match_start_discord_message(guild_id, channel_id, message, timeout=3):
     try:
         guild = discord.utils.get(bot.guilds, id=guild_id)
         if guild:
@@ -236,6 +240,10 @@ async def send_discord_message(guild_id, channel_id, message, timeout=3):
                 await asyncio.wait_for(channel.send(message), timeout=timeout)
     except asyncio.TimeoutError:
         logging.error(f"Sending message timed out after {timeout} seconds")
+
+
+def calculate_win_odds():
+    pass
 
 
 async def update_accounts():

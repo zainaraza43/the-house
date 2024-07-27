@@ -1,7 +1,6 @@
 from functools import cached_property
 
 import discord
-from discord import app_commands
 from discord.ext import commands
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session, scoped_session
