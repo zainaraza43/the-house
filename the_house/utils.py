@@ -184,9 +184,7 @@ async def update_lol_accounts():
                             "bets": {}
                         }
                         bets[account.puuid] = new_game_bet
-                        await send_match_start_discord_message(account.guild.guild_id, account.guild.channel_id,
-                                                               f"Game just started for <@{account.user.discord_account_id}>"
-                                                               f"\nWin odds: {win_odds}\nLose odds: {lose_odds}")
+                        await send_match_start_discord_message(account, live_match_details)
 
             lol_accounts[account.puuid] = {
                 'last_match': last_match_game_id,
