@@ -117,9 +117,9 @@ def get_champion_icon(champion_id: int, version: str = "14.14.1") -> str:
 
 
 def calculate_odds(puuid: str, queue_id=int):
-    total_games = 20
     wins = 0
-    match_ids = get_match_ids_by_puuid(puuid=puuid, count=total_games, queue_id=queue_id)
+    match_ids = get_match_ids_by_puuid(puuid=puuid, count=20, queue_id=queue_id)
+    total_games = len(match_ids)
     for match_id in match_ids:
         match_details = get_match_details(match_id)
         for participant in match_details['info']['participants']:
@@ -355,4 +355,4 @@ async def send_match_start_discord_message(account: LeagueOfLegendsAccount, matc
 async def update_accounts():
     while True:
         await update_lol_accounts()
-        await asyncio.sleep(3)
+        await asyncio.sleep(1)
