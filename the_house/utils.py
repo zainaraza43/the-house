@@ -7,7 +7,7 @@ import requests
 from discord import app_commands
 
 from config import RIOT_API_KEY
-from models import User, LeagueOfLegendsAccount, Guild
+from models import User, LeagueOfLegendsAccount, Guild, Bank
 from services import services
 
 bot = services.bot
@@ -38,6 +38,14 @@ def create_guild(guild_id: int):
     db.add(guild)
     db.commit()
     return guild
+
+
+def create_bank(user_id: int, guild_id: int):
+    db = services.db
+    bank = Bank(user_id=user_id, guild_id=guild_id)
+    db.add(bank)
+    db.commit()
+    return bank
 
 
 def get_guild_by_guild_id(guild_id: int):
@@ -219,6 +227,17 @@ async def set_betting_channel(interaction: discord.Interaction):
     await interaction.response.send_message(f'Betting channel has been set to {interaction.channel.mention}.')
 
 
+@bot.tree.command(name="set-currency", description="Set the currency for the guild")
+@app_commands.checks.has_permissions(manage_guild=True)
+async def set_currency(interaction: discord.Interaction, currency: str):
+    guild = get_guild_by_guild_id(interaction.guild.id)
+    if not guild:
+        guild = create_guild(interaction.guild.id)
+
+    guild.currency = currency
+    await interaction.response.send_message(f'Currency has been set to {currency}.')
+
+
 @bot.tree.command(name="set-league-of-legends-account", description="Add a League of Legends account")
 @app_commands.describe(riot_id="The Riot ID in the format `USERNAME#TAGLINE`", region="The region of the account")
 @app_commands.choices(region=[
@@ -287,6 +306,23 @@ async def set_league_of_legends_account(interaction: discord.Interaction, region
             "An error occurred while setting the League of Legends account. Please try again later.")
 
 
+@bot.tree.command(name="wallet", description="Check the amount of currency in your wallet")
+async def wallet(interaction: discord.Interaction):
+    user = get_user_by_discord_account_id(interaction.user.id)
+    if not user:
+        user = create_user(interaction.user.id)
+
+    guild = get_guild_by_guild_id(interaction.guild.id)
+    if not guild:
+        guild = create_guild(interaction.guild.id)
+
+    bank = services.db.query(Bank).filter_by(user_id=user.id, guild_id=guild.id).first()
+    if not bank:
+        bank = create_bank(user.id, guild.id)
+
+    await interaction.response.send_message(f'You have {bank.coins} {guild.currency} in your wallet.')
+
+
 async def send_match_start_discord_message(account: LeagueOfLegendsAccount, match_details, timeout=3):
     guild_id = account.guild.guild_id
     channel_id = account.guild.channel_id
@@ -309,17 +345,14 @@ async def send_match_start_discord_message(account: LeagueOfLegendsAccount, matc
                         message.set_thumbnail(url=champion_icon)
                         message.add_field(name="Win odds", value=bet['win_odds'])
                         message.add_field(name="Lose odds", value=bet['lose_odds'])
+                        logging.info(f"champion_id: {champion_id}, champion_icon: {champion_icon}, riot_id: {riot_id}")
                         await asyncio.wait_for(channel.send(embed=message), timeout)
 
     except asyncio.TimeoutError:
         logging.error(f"Sending message timed out after {timeout} seconds")
 
 
-def calculate_win_odds():
-    pass
-
-
 async def update_accounts():
     while True:
         await update_lol_accounts()
-        await asyncio.sleep(1)
+        await asyncio.sleep(3)
