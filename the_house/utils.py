@@ -60,7 +60,7 @@ def get_account_by_riot_id(username: str, tag_line: str):
 
 
 def get_account_info_by_puuid(puuid: str) -> dict:
-    url = f"https://{BASE_URL_AMERICAS}.api.riotgames.com/riot/account/v1/accounts/by-puuid/{puuid}?api_key={RIOT_API_KEY}"
+    url = f"{BASE_URL_AMERICAS}/riot/account/v1/accounts/by-puuid/{puuid}?api_key={RIOT_API_KEY}"
     response = requests.get(url)
 
     if response.status_code != 200:
