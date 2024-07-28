@@ -56,22 +56,27 @@ def get_guild_by_guild_id(guild_id: int):
 def get_account_by_riot_id(username: str, tag_line: str):
     url = f"{BASE_URL_AMERICAS}/riot/account/v1/accounts/by-riot-id/{username}/{tag_line}?api_key={RIOT_API_KEY}"
     response = requests.get(url)
+    if response.status_code != 200:
+        logging.error(f"Failed to fetch account by Riot ID: {response.status_code}, {response.text}")
+        raise Exception(f"Failed to fetch account by Riot ID: {response.status_code}, {response.text}")
     return response.json()
 
 
 def get_account_info_by_puuid(puuid: str) -> dict:
     url = f"{BASE_URL_AMERICAS}/riot/account/v1/accounts/by-puuid/{puuid}?api_key={RIOT_API_KEY}"
     response = requests.get(url)
-
     if response.status_code != 200:
+        logging.error(f"Failed to fetch account info: {response.status_code}, {response.text}")
         raise Exception(f"Failed to fetch account info: {response.status_code}, {response.text}")
-
     return response.json()
 
 
 def get_summoner_by_puuid(puuid: str, region: str):
     url = f"https://{region}.api.riotgames.com/lol/summoner/v4/summoners/by-puuid/{puuid}?api_key={RIOT_API_KEY}"
     response = requests.get(url)
+    if response.status_code != 200:
+        logging.error(f"Failed to fetch summoner by PUUID: {response.status_code}, {response.text}")
+        raise Exception(f"Failed to fetch summoner by PUUID: {response.status_code}, {response.text}")
     return response.json()
 
 
@@ -82,27 +87,35 @@ def get_match_ids_by_puuid(puuid: str, start=0, count=1, queue_id=None):
         url = f"{BASE_URL_AMERICAS}/lol/match/v5/matches/by-puuid/{puuid}/ids?start={start}&count={count}&api_key={RIOT_API_KEY}"
 
     response = requests.get(url)
+    if response.status_code != 200:
+        logging.error(f"Failed to fetch match IDs: {response.status_code}, {response.text}")
+        raise Exception(f"Failed to fetch match IDs: {response.status_code}, {response.text}")
     return response.json()
 
 
 def get_match_details(match_id):
     url = f"{BASE_URL_AMERICAS}/lol/match/v5/matches/{match_id}?api_key={RIOT_API_KEY}"
     response = requests.get(url)
+    if response.status_code != 200:
+        logging.error(f"Failed to fetch match details: {response.status_code}, {response.text}")
+        raise Exception(f"Failed to fetch match details: {response.status_code}, {response.text}")
     return response.json()
 
 
 def get_live_match_details(puuid: str, region: str):
     url = f"https://{region}.api.riotgames.com/lol/spectator/v5/active-games/by-summoner/{puuid}?api_key={RIOT_API_KEY}"
     response = requests.get(url)
-    logging.info(response.json())
+    if response.status_code != 200:
+        logging.error(f"Failed to fetch live match details: {response.status_code}, {response.text}")
+        raise Exception(f"Failed to fetch live match details: {response.status_code}, {response.text}")
     return response.json()
 
 
 def get_champion_icon(champion_id: int, version: str = "14.14.1") -> str:
     url = f"https://ddragon.leagueoflegends.com/cdn/{version}/data/en_US/champion.json"
-
     response = requests.get(url)
     if response.status_code != 200:
+        logging.error(f"Failed to fetch champion data: {response.status_code}, {response.text}")
         raise Exception("Failed to fetch champion data")
 
     data = response.json()
@@ -113,6 +126,7 @@ def get_champion_icon(champion_id: int, version: str = "14.14.1") -> str:
             image_filename = champion_info["image"]["full"]
             return f"https://ddragon.leagueoflegends.com/cdn/{version}/img/champion/{image_filename}"
 
+    logging.error("Champion ID not found")
     raise Exception("Champion ID not found")
 
 
@@ -355,4 +369,4 @@ async def send_match_start_discord_message(account: LeagueOfLegendsAccount, matc
 async def update_accounts():
     while True:
         await update_lol_accounts()
-        await asyncio.sleep(1)
+        await asyncio.sleep(3)
