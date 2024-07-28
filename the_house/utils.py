@@ -51,6 +51,16 @@ def get_account_by_riot_id(username: str, tag_line: str):
     return response.json()
 
 
+def get_account_info_by_puuid(puuid: str) -> dict:
+    url = f"https://{BASE_URL_AMERICAS}.api.riotgames.com/riot/account/v1/accounts/by-puuid/{puuid}?api_key={RIOT_API_KEY}"
+    response = requests.get(url)
+
+    if response.status_code != 200:
+        raise Exception(f"Failed to fetch account info: {response.status_code}, {response.text}")
+
+    return response.json()
+
+
 def get_summoner_by_puuid(puuid: str, region: str):
     url = f"https://{region}.api.riotgames.com/lol/summoner/v4/summoners/by-puuid/{puuid}?api_key={RIOT_API_KEY}"
     response = requests.get(url)
@@ -80,6 +90,24 @@ def get_live_match_details(puuid: str, region: str):
     return response.json()
 
 
+def get_champion_icon(champion_id: int, version: str = "14.14.1") -> str:
+    url = f"https://ddragon.leagueoflegends.com/cdn/{version}/data/en_US/champion.json"
+
+    response = requests.get(url)
+    if response.status_code != 200:
+        raise Exception("Failed to fetch champion data")
+
+    data = response.json()
+    champion_data = data.get("data", {})
+
+    for champion_name, champion_info in champion_data.items():
+        if champion_info.get("key") == str(champion_id):
+            image_filename = champion_info["image"]["full"]
+            return f"https://ddragon.leagueoflegends.com/cdn/{version}/img/champion/{image_filename}"
+
+    raise Exception("Champion ID not found")
+
+
 def calculate_odds(puuid: str, queue_id=int):
     total_games = 20
     wins = 0
@@ -97,7 +125,7 @@ def calculate_odds(puuid: str, queue_id=int):
     win_odds = 1 / win_rate if win_rate != 0 else float('inf')
     lose_odds = 1 / lose_rate if lose_rate != 0 else float('inf')
 
-    return win_odds, lose_odds
+    return round(win_odds, 2), round(lose_odds, 2)
 
 
 def set_lol_account(user_id: int, guild_id: int, region: str, puuid: str):
@@ -142,8 +170,8 @@ async def update_lol_accounts():
                     if lol_accounts.get(account.puuid).get('live_match', None) == last_match_game_id:
                         logging.info(
                             f"Game just ended for {account.puuid} ({lol_accounts[account.puuid]} == {last_match_game_id})")
-                        await send_match_start_discord_message(account.guild.guild_id, account.guild.channel_id,
-                                                   f"Game just ended for <@{account.user.discord_account_id}>")
+                        # await send_match_start_discord_message(account.guild.guild_id, account.guild.channel_id,
+                        #                                        f"Game just ended for <@{account.user.discord_account_id}>")
                 else:
                     if lol_accounts.get(account.puuid).get('live_match', None) != live_match_game_id:
                         queue_id = live_match_details['gameQueueConfigId']
@@ -157,7 +185,8 @@ async def update_lol_accounts():
                         }
                         bets[account.puuid] = new_game_bet
                         await send_match_start_discord_message(account.guild.guild_id, account.guild.channel_id,
-                                                   f"Game just started for <@{account.user.discord_account_id}>")
+                                                               f"Game just started for <@{account.user.discord_account_id}>"
+                                                               f"\nWin odds: {win_odds}\nLose odds: {lose_odds}")
 
             lol_accounts[account.puuid] = {
                 'last_match': last_match_game_id,
@@ -260,13 +289,30 @@ async def set_league_of_legends_account(interaction: discord.Interaction, region
             "An error occurred while setting the League of Legends account. Please try again later.")
 
 
-async def send_match_start_discord_message(guild_id, channel_id, message, timeout=3):
+async def send_match_start_discord_message(account: LeagueOfLegendsAccount, match_details, timeout=3):
+    guild_id = account.guild.guild_id
+    channel_id = account.guild.channel_id
     try:
         guild = discord.utils.get(bot.guilds, id=guild_id)
         if guild:
             channel = bot.get_channel(channel_id)
             if channel:
-                await asyncio.wait_for(channel.send(message), timeout=timeout)
+                bet = bets.get(account.puuid)
+                discord_user = await bot.fetch_user(account.user.discord_account_id)
+                name = discord_user.display_name
+                pfp = discord_user.display_avatar
+                riot_id = get_account_info_by_puuid(account.puuid)['gameName']
+                for participant in match_details['participants']:
+                    if participant['puuid'] == account.puuid:
+                        champion_id = participant['championId']
+                        champion_icon = get_champion_icon(champion_id)
+                        message = discord.Embed(title=f"Game started for {riot_id}")
+                        message.set_author(name=name, icon_url=pfp)
+                        message.set_thumbnail(url=champion_icon)
+                        message.add_field(name="Win odds", value=bet['win_odds'])
+                        message.add_field(name="Lose odds", value=bet['lose_odds'])
+                        await asyncio.wait_for(channel.send(embed=message), timeout)
+
     except asyncio.TimeoutError:
         logging.error(f"Sending message timed out after {timeout} seconds")
 
@@ -278,4 +324,4 @@ def calculate_win_odds():
 async def update_accounts():
     while True:
         await update_lol_accounts()
-        await asyncio.sleep(5)
+        await asyncio.sleep(1)
