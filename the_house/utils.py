@@ -11,9 +11,30 @@ from models import User, LeagueOfLegendsAccount, Guild, Bank
 from services import services
 
 bot = services.bot
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(funcName)s - %(message)s'
+)
 
-BASE_URL_AMERICAS = "https://americas.api.riotgames.com"
-logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
+CONTINENT_TO_REGION = {
+    "na1": "americas",
+    "br1": "americas",
+    "la1": "americas",
+    "la2": "americas",
+    "kr": "asia",
+    "jp1": "asia",
+    "eun1": "europe",
+    "euw1": "europe",
+    "me1": "europe",
+    "tr1": "europe",
+    "ru": "europe",
+    "oc1": "sea",
+    "ph2": "sea",
+    "sg2": "sea",
+    "th2": "sea",
+    "tw2": "sea",
+    "vn2": "sea"
+}
 
 lol_accounts = {}
 bets = {}
@@ -53,8 +74,9 @@ def get_guild_by_guild_id(guild_id: int):
     return db.query(Guild).filter(Guild.guild_id == guild_id).first()
 
 
-def get_account_by_riot_id(username: str, tag_line: str):
-    url = f"{BASE_URL_AMERICAS}/riot/account/v1/accounts/by-riot-id/{username}/{tag_line}?api_key={RIOT_API_KEY}"
+def get_account_by_riot_id(username: str, tag_line: str, region: str) -> dict:
+    continent = CONTINENT_TO_REGION.get(region)
+    url = f"https://{continent}.api.riotgames.com/riot/account/v1/accounts/by-riot-id/{username}/{tag_line}?api_key={RIOT_API_KEY}"
     response = requests.get(url)
     if response.status_code != 200:
         logging.error(f"Failed to fetch account by Riot ID: {response.status_code}, {response.text}")
@@ -62,8 +84,9 @@ def get_account_by_riot_id(username: str, tag_line: str):
     return response.json()
 
 
-def get_account_info_by_puuid(puuid: str) -> dict:
-    url = f"{BASE_URL_AMERICAS}/riot/account/v1/accounts/by-puuid/{puuid}?api_key={RIOT_API_KEY}"
+def get_account_info_by_puuid(puuid: str, region: str) -> dict:
+    continent = CONTINENT_TO_REGION.get(region)
+    url = f"https://{continent}.api.riotgames.com/riot/account/v1/accounts/by-puuid/{puuid}?api_key={RIOT_API_KEY}"
     response = requests.get(url)
     if response.status_code != 200:
         logging.error(f"Failed to fetch account info: {response.status_code}, {response.text}")
@@ -71,7 +94,7 @@ def get_account_info_by_puuid(puuid: str) -> dict:
     return response.json()
 
 
-def get_summoner_by_puuid(puuid: str, region: str):
+def get_summoner_by_puuid(puuid: str, region: str) -> dict:
     url = f"https://{region}.api.riotgames.com/lol/summoner/v4/summoners/by-puuid/{puuid}?api_key={RIOT_API_KEY}"
     response = requests.get(url)
     if response.status_code != 200:
@@ -80,11 +103,12 @@ def get_summoner_by_puuid(puuid: str, region: str):
     return response.json()
 
 
-def get_match_ids_by_puuid(puuid: str, start=0, count=1, queue_id=None):
+def get_match_ids_by_puuid(puuid: str, region: str, start=0, count=1, queue_id=None) -> list:
+    continent = CONTINENT_TO_REGION.get(region)
     if queue_id is not None:
-        url = f"{BASE_URL_AMERICAS}/lol/match/v5/matches/by-puuid/{puuid}/ids?queue={queue_id}&start={start}&count={count}&api_key={RIOT_API_KEY}"
+        url = f"https://{continent}.api.riotgames.com/lol/match/v5/matches/by-puuid/{puuid}/ids?queue={queue_id}&start={start}&count={count}&api_key={RIOT_API_KEY}"
     else:
-        url = f"{BASE_URL_AMERICAS}/lol/match/v5/matches/by-puuid/{puuid}/ids?start={start}&count={count}&api_key={RIOT_API_KEY}"
+        url = f"https://{continent}.api.riotgames.com/lol/match/v5/matches/by-puuid/{puuid}/ids?start={start}&count={count}&api_key={RIOT_API_KEY}"
 
     response = requests.get(url)
     if response.status_code != 200:
@@ -93,8 +117,9 @@ def get_match_ids_by_puuid(puuid: str, start=0, count=1, queue_id=None):
     return response.json()
 
 
-def get_match_details(match_id):
-    url = f"{BASE_URL_AMERICAS}/lol/match/v5/matches/{match_id}?api_key={RIOT_API_KEY}"
+def get_match_details(match_id: str, region: str) -> dict:
+    continent = CONTINENT_TO_REGION.get(region)
+    url = f"https://{continent}.api.riotgames.com/lol/match/v5/matches/{match_id}?api_key={RIOT_API_KEY}"
     response = requests.get(url)
     if response.status_code != 200:
         logging.error(f"Failed to fetch match details: {response.status_code}, {response.text}")
@@ -102,7 +127,7 @@ def get_match_details(match_id):
     return response.json()
 
 
-def get_live_match_details(puuid: str, region: str):
+def get_live_match_details(puuid: str, region: str) -> dict:
     url = f"https://{region}.api.riotgames.com/lol/spectator/v5/active-games/by-summoner/{puuid}?api_key={RIOT_API_KEY}"
     response = requests.get(url)
     if response.status_code != 200:
@@ -130,12 +155,12 @@ def get_champion_icon(champion_id: int, version: str = "14.14.1") -> str:
     raise Exception("Champion ID not found")
 
 
-def calculate_odds(puuid: str, queue_id=int):
+def calculate_odds(puuid: str, region: str, queue_id=int) -> tuple:
     wins = 0
-    match_ids = get_match_ids_by_puuid(puuid=puuid, count=20, queue_id=queue_id)
+    match_ids = get_match_ids_by_puuid(puuid=puuid, region=region, count=20, queue_id=queue_id)
     total_games = len(match_ids)
     for match_id in match_ids:
-        match_details = get_match_details(match_id)
+        match_details = get_match_details(match_id, region)
         for participant in match_details['info']['participants']:
             if participant['puuid'] == puuid:
                 if participant['win']:
@@ -178,9 +203,9 @@ async def update_lol_accounts():
 
     for account in accounts:
         try:
-            match_ids = get_match_ids_by_puuid(account.puuid, count=1)
+            match_ids = get_match_ids_by_puuid(account.puuid, region=account.region, count=1)
             last_match_id = match_ids[0]
-            match_details = get_match_details(last_match_id)
+            match_details = get_match_details(last_match_id, account.region)
             last_match_game_id = match_details['info']['gameId']
 
             live_match_details = get_live_match_details(account.puuid, account.region)
@@ -195,9 +220,10 @@ async def update_lol_accounts():
                         # await send_match_start_discord_message(account.guild.guild_id, account.guild.channel_id,
                         #                                        f"Game just ended for <@{account.user.discord_account_id}>")
                 else:
+                    # game just started
                     if lol_accounts.get(account.puuid).get('live_match', None) != live_match_game_id:
                         queue_id = live_match_details['gameQueueConfigId']
-                        win_odds, lose_odds = calculate_odds(account.puuid, queue_id)
+                        win_odds, lose_odds = calculate_odds(account.puuid, account.region, queue_id)
                         new_game_bet = {
                             "game_id": live_match_game_id,
                             "match_id": None,
@@ -283,7 +309,7 @@ async def set_league_of_legends_account(interaction: discord.Interaction, region
 
     try:
         # Step 1: Get account by Riot ID
-        account_info = get_account_by_riot_id(username, tag_line)
+        account_info = get_account_by_riot_id(username, tag_line, region.value)
         if 'status' in account_info and account_info['status']['status_code'] != 200:
             await interaction.response.send_message(f"Error: {account_info['status']['message']}")
             return
@@ -349,7 +375,7 @@ async def send_match_start_discord_message(account: LeagueOfLegendsAccount, matc
                 discord_user = await bot.fetch_user(account.user.discord_account_id)
                 name = discord_user.display_name
                 pfp = discord_user.display_avatar
-                riot_id = get_account_info_by_puuid(account.puuid)['gameName']
+                riot_id = get_account_info_by_puuid(account.puuid, account.region)['gameName']
                 for participant in match_details['participants']:
                     if participant['puuid'] == account.puuid:
                         champion_id = participant['championId']
