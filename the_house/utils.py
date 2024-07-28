@@ -5,6 +5,7 @@ import threading
 import discord
 import requests
 from discord import app_commands
+from discord.ui import View, Button
 
 from config import RIOT_API_KEY
 from models import User, LeagueOfLegendsAccount, Guild, Bank
@@ -222,6 +223,8 @@ async def update_lol_accounts():
                 else:
                     # game just started
                     if lol_accounts.get(account.puuid).get('live_match', None) != live_match_game_id:
+                        logging.info(
+                            f"Game just started for {account.puuid} ({lol_accounts[account.puuid]} != {live_match_game_id})")
                         queue_id = live_match_details['gameQueueConfigId']
                         win_odds, lose_odds = calculate_odds(account.puuid, account.region, queue_id)
                         new_game_bet = {
@@ -363,33 +366,143 @@ async def wallet(interaction: discord.Interaction):
     await interaction.response.send_message(f'You have {bank.coins} {guild.currency} in your wallet.')
 
 
+class BetView(View):
+    def __init__(self, account: LeagueOfLegendsAccount, bet):
+        super().__init__(timeout=None)
+        self.account = account
+        self.bet = bet
+        self.amount = 0
+        self.current_operation_is_add = True
+        self.outcome_win = None
+
+    async def interaction_check(self, interaction: discord.Interaction):
+        return interaction.user.id == self.account.id
+
+    async def update_message(self, interaction: discord.Interaction):
+        embed = interaction.message.embeds[0]
+        embed.set_field_at(2, name="Amount Bet", value=f"{self.amount}")
+        await interaction.message.edit(embed=embed, view=self)
+
+    @discord.ui.button(label='+', style=discord.ButtonStyle.primary)
+    async def add(self, button: Button, interaction: discord.Interaction):
+        self.current_operation_is_add = True
+        await self.update_message(interaction)
+
+    @discord.ui.button(label='-', style=discord.ButtonStyle.primary)
+    async def subtract(self, button: Button, interaction: discord.Interaction):
+        self.current_operation_is_add = False
+        await self.update_message(interaction)
+
+    @discord.ui.button(label='1', style=discord.ButtonStyle.secondary)
+    async def add1(self, button: Button, interaction: discord.Interaction):
+        if self.current_operation_is_add:
+            self.amount += 1
+        else:
+            self.amount = max(0, self.amount - 1)
+        await self.update_message(interaction)
+
+    @discord.ui.button(label='5', style=discord.ButtonStyle.secondary)
+    async def add5(self, button: Button, interaction: discord.Interaction):
+        if self.current_operation_is_add:
+            self.amount += 5
+        else:
+            self.amount = max(0, self.amount - 5)
+        await self.update_message(interaction)
+
+    @discord.ui.button(label='10', style=discord.ButtonStyle.secondary)
+    async def add10(self, button: Button, interaction: discord.Interaction):
+        if self.current_operation_is_add:
+            self.amount += 10
+        else:
+            self.amount = max(0, self.amount - 10)
+        await self.update_message(interaction)
+
+    @discord.ui.button(label='25', style=discord.ButtonStyle.secondary)
+    async def add25(self, button: Button, interaction: discord.Interaction):
+        if self.current_operation_is_add:
+            self.amount += 25
+        else:
+            self.amount = max(0, self.amount - 25)
+        await self.update_message(interaction)
+
+    @discord.ui.button(label='Win', style=discord.ButtonStyle.success)
+    async def bet_win(self, button: Button, interaction: discord.Interaction):
+        self.outcome_win = True
+        await self.update_message(interaction)
+
+    @discord.ui.button(label='Lose', style=discord.ButtonStyle.danger)
+    async def bet_lose(self, button: Button, interaction: discord.Interaction):
+        self.outcome_win = False
+        await self.update_message(interaction)
+
+    @discord.ui.button(label='Lock In', style=discord.ButtonStyle.primary)
+    async def lock_in(self, button: Button, interaction: discord.Interaction):
+        if self.amount > 0 and self.outcome_win is not None:
+            wager = {
+                'discord_id': self.account.user.id,
+                'server_id': self.account.guild.id,
+                'wagered_win': self.outcome_win,
+                'wagered_amount': self.amount
+            }
+            self.bet[self.account.puuid]['bets'].append(wager)
+            await interaction.response.send_message(f"Bet locked in: {self.amount} on {self.outcome_win}",
+                                                    ephemeral=True)
+            self.stop()
+        else:
+            await interaction.response.send_message("You must choose an amount and an outcome to lock in the bet.",
+                                                    ephemeral=True)
+
+
 async def send_match_start_discord_message(account: LeagueOfLegendsAccount, match_details, timeout=3):
     guild_id = account.guild.guild_id
     channel_id = account.guild.channel_id
+    logging.info("Entering function")
+    logging.info(f"guild_id={guild_id}, channel_id={channel_id}")
+
     try:
         guild = discord.utils.get(bot.guilds, id=guild_id)
+        logging.info(f"guild={guild}")
+
         if guild:
             channel = bot.get_channel(channel_id)
+            logging.info(f"channel={channel}")
+
             if channel:
                 bet = bets.get(account.puuid)
+                logging.info(f"bet={bet}")
+
                 discord_user = await bot.fetch_user(account.user.discord_account_id)
+                logging.info(f"discord_user={discord_user}")
+
                 name = discord_user.display_name
                 pfp = discord_user.display_avatar
                 riot_id = get_account_info_by_puuid(account.puuid, account.region)['gameName']
+                logging.info(f"name={name}, pfp={pfp}, riot_id={riot_id}")
+
                 for participant in match_details['participants']:
+                    logging.info(f"participant={participant}")
+
                     if participant['puuid'] == account.puuid:
                         champion_id = participant['championId']
                         champion_icon = get_champion_icon(champion_id)
+                        logging.info(f"champion_id={champion_id}, champion_icon={champion_icon}")
+
                         message = discord.Embed(title=f"Game started for {riot_id}")
                         message.set_author(name=name, icon_url=pfp)
                         message.set_thumbnail(url=champion_icon)
                         message.add_field(name="Win odds", value=bet['win_odds'])
                         message.add_field(name="Lose odds", value=bet['lose_odds'])
-                        logging.info(f"champion_id: {champion_id}, champion_icon: {champion_icon}, riot_id: {riot_id}")
-                        await asyncio.wait_for(channel.send(embed=message), timeout)
+
+                        view = BetView(account=account, bet=bet)
+
+                        logging.info("Sending message to channel")
+                        await asyncio.wait_for(channel.send(embed=message, view=view), timeout)
+                        logging.info("Message sent successfully")
 
     except asyncio.TimeoutError:
         logging.error(f"Sending message timed out after {timeout} seconds")
+    except Exception as e:
+        logging.error(f"An unexpected error occurred: {e}")
 
 
 async def update_accounts():
