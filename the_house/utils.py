@@ -1,9 +1,8 @@
 import asyncio
 import logging
-import threading
 
+import aiohttp
 import discord
-import requests
 from discord import app_commands
 from discord.ui import View, Button
 
@@ -75,107 +74,6 @@ def get_guild_by_guild_id(guild_id: int):
     return db.query(Guild).filter(Guild.guild_id == guild_id).first()
 
 
-def get_account_by_riot_id(username: str, tag_line: str, region: str) -> dict:
-    continent = CONTINENT_TO_REGION.get(region)
-    url = f"https://{continent}.api.riotgames.com/riot/account/v1/accounts/by-riot-id/{username}/{tag_line}?api_key={RIOT_API_KEY}"
-    response = requests.get(url)
-    if response.status_code != 200:
-        logging.error(f"Failed to fetch account by Riot ID: {response.status_code}, {response.text}")
-        raise Exception(f"Failed to fetch account by Riot ID: {response.status_code}, {response.text}")
-    return response.json()
-
-
-def get_account_info_by_puuid(puuid: str, region: str) -> dict:
-    continent = CONTINENT_TO_REGION.get(region)
-    url = f"https://{continent}.api.riotgames.com/riot/account/v1/accounts/by-puuid/{puuid}?api_key={RIOT_API_KEY}"
-    response = requests.get(url)
-    if response.status_code != 200:
-        logging.error(f"Failed to fetch account info: {response.status_code}, {response.text}")
-        raise Exception(f"Failed to fetch account info: {response.status_code}, {response.text}")
-    return response.json()
-
-
-def get_summoner_by_puuid(puuid: str, region: str) -> dict:
-    url = f"https://{region}.api.riotgames.com/lol/summoner/v4/summoners/by-puuid/{puuid}?api_key={RIOT_API_KEY}"
-    response = requests.get(url)
-    if response.status_code != 200:
-        logging.error(f"Failed to fetch summoner by PUUID: {response.status_code}, {response.text}")
-        raise Exception(f"Failed to fetch summoner by PUUID: {response.status_code}, {response.text}")
-    return response.json()
-
-
-def get_match_ids_by_puuid(puuid: str, region: str, start=0, count=1, queue_id=None) -> list:
-    continent = CONTINENT_TO_REGION.get(region)
-    if queue_id is not None:
-        url = f"https://{continent}.api.riotgames.com/lol/match/v5/matches/by-puuid/{puuid}/ids?queue={queue_id}&start={start}&count={count}&api_key={RIOT_API_KEY}"
-    else:
-        url = f"https://{continent}.api.riotgames.com/lol/match/v5/matches/by-puuid/{puuid}/ids?start={start}&count={count}&api_key={RIOT_API_KEY}"
-
-    response = requests.get(url)
-    if response.status_code != 200:
-        logging.error(f"Failed to fetch match IDs: {response.status_code}, {response.text}")
-        raise Exception(f"Failed to fetch match IDs: {response.status_code}, {response.text}")
-    return response.json()
-
-
-def get_match_details(match_id: str, region: str) -> dict:
-    continent = CONTINENT_TO_REGION.get(region)
-    url = f"https://{continent}.api.riotgames.com/lol/match/v5/matches/{match_id}?api_key={RIOT_API_KEY}"
-    response = requests.get(url)
-    if response.status_code != 200:
-        logging.error(f"Failed to fetch match details: {response.status_code}, {response.text}")
-        raise Exception(f"Failed to fetch match details: {response.status_code}, {response.text}")
-    return response.json()
-
-
-def get_live_match_details(puuid: str, region: str) -> dict:
-    url = f"https://{region}.api.riotgames.com/lol/spectator/v5/active-games/by-summoner/{puuid}?api_key={RIOT_API_KEY}"
-    response = requests.get(url)
-    if response.status_code != 200:
-        logging.error(f"Failed to fetch live match details: {response.status_code}, {response.text}")
-        raise Exception(f"Failed to fetch live match details: {response.status_code}, {response.text}")
-    return response.json()
-
-
-def get_champion_icon(champion_id: int, version: str = "14.14.1") -> str:
-    url = f"https://ddragon.leagueoflegends.com/cdn/{version}/data/en_US/champion.json"
-    response = requests.get(url)
-    if response.status_code != 200:
-        logging.error(f"Failed to fetch champion data: {response.status_code}, {response.text}")
-        raise Exception("Failed to fetch champion data")
-
-    data = response.json()
-    champion_data = data.get("data", {})
-
-    for champion_name, champion_info in champion_data.items():
-        if champion_info.get("key") == str(champion_id):
-            image_filename = champion_info["image"]["full"]
-            return f"https://ddragon.leagueoflegends.com/cdn/{version}/img/champion/{image_filename}"
-
-    logging.error("Champion ID not found")
-    raise Exception("Champion ID not found")
-
-
-def calculate_odds(puuid: str, region: str, queue_id=int) -> tuple:
-    wins = 0
-    match_ids = get_match_ids_by_puuid(puuid=puuid, region=region, count=20, queue_id=queue_id)
-    total_games = len(match_ids)
-    for match_id in match_ids:
-        match_details = get_match_details(match_id, region)
-        for participant in match_details['info']['participants']:
-            if participant['puuid'] == puuid:
-                if participant['win']:
-                    wins += 1
-                break
-
-    win_rate = wins / total_games if total_games != 0 else 0.5
-    lose_rate = 1 - win_rate
-    win_odds = 1 / win_rate if win_rate != 0 else float('inf')
-    lose_odds = 1 / lose_rate if lose_rate != 0 else float('inf')
-
-    return round(win_odds, 2), round(lose_odds, 2)
-
-
 def set_lol_account(user_id: int, guild_id: int, region: str, puuid: str):
     db = services.db
     existing_account = db.query(LeagueOfLegendsAccount).filter_by(
@@ -198,18 +96,98 @@ def set_lol_account(user_id: int, guild_id: int, region: str, puuid: str):
         db.commit()
 
 
+async def fetch_json(url):
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url) as response:
+            if response.status != 200:
+                logging.error(f"Failed to fetch data: {response.status}, {await response.text()}")
+                raise Exception(f"Failed to fetch data: {response.status}, {await response.text()}")
+            return await response.json()
+
+
+async def get_account_by_riot_id(username: str, tag_line: str, region: str) -> dict:
+    continent = CONTINENT_TO_REGION.get(region)
+    url = f"https://{continent}.api.riotgames.com/riot/account/v1/accounts/by-riot-id/{username}/{tag_line}?api_key={RIOT_API_KEY}"
+    return await fetch_json(url)
+
+
+async def get_account_info_by_puuid(puuid: str, region: str) -> dict:
+    continent = CONTINENT_TO_REGION.get(region)
+    url = f"https://{continent}.api.riotgames.com/riot/account/v1/accounts/by-puuid/{puuid}?api_key={RIOT_API_KEY}"
+    return await fetch_json(url)
+
+
+async def get_summoner_by_puuid(puuid: str, region: str) -> dict:
+    url = f"https://{region}.api.riotgames.com/lol/summoner/v4/summoners/by-puuid/{puuid}?api_key={RIOT_API_KEY}"
+    return await fetch_json(url)
+
+
+async def get_match_ids_by_puuid(puuid: str, region: str, start=0, count=1, queue_id=None) -> list:
+    continent = CONTINENT_TO_REGION.get(region)
+    if queue_id is not None:
+        url = f"https://{continent}.api.riotgames.com/lol/match/v5/matches/by-puuid/{puuid}/ids?queue={queue_id}&start={start}&count={count}&api_key={RIOT_API_KEY}"
+    else:
+        url = f"https://{continent}.api.riotgames.com/lol/match/v5/matches/by-puuid/{puuid}/ids?start={start}&count={count}&api_key={RIOT_API_KEY}"
+    return await fetch_json(url)
+
+
+async def get_match_details(match_id: str, region: str) -> dict:
+    continent = CONTINENT_TO_REGION.get(region)
+    url = f"https://{continent}.api.riotgames.com/lol/match/v5/matches/{match_id}?api_key={RIOT_API_KEY}"
+    return await fetch_json(url)
+
+
+async def get_live_match_details(puuid: str, region: str) -> dict:
+    url = f"https://{region}.api.riotgames.com/lol/spectator/v5/active-games/by-summoner/{puuid}?api_key={RIOT_API_KEY}"
+    return await fetch_json(url)
+
+
+async def get_champion_icon(champion_id: int, version: str = "14.14.1") -> str:
+    url = f"https://ddragon.leagueoflegends.com/cdn/{version}/data/en_US/champion.json"
+    data = await fetch_json(url)
+
+    champion_data = data.get("data", {})
+    for champion_name, champion_info in champion_data.items():
+        if champion_info.get("key") == str(champion_id):
+            image_filename = champion_info["image"]["full"]
+            return f"https://ddragon.leagueoflegends.com/cdn/{version}/img/champion/{image_filename}"
+
+    logging.error("Champion ID not found")
+    raise Exception("Champion ID not found")
+
+
+async def calculate_odds(puuid: str, region: str, queue_id=int) -> tuple:
+    wins = 0
+    match_ids = await get_match_ids_by_puuid(puuid=puuid, region=region, count=20, queue_id=queue_id)
+    total_games = len(match_ids)
+    for match_id in match_ids:
+        match_details = await get_match_details(match_id, region)
+        for participant in match_details['info']['participants']:
+            if participant['puuid'] == puuid:
+                if participant['win']:
+                    wins += 1
+                break
+
+    win_rate = wins / total_games if total_games != 0 else 0.5
+    lose_rate = 1 - win_rate
+    win_odds = 1 / win_rate if win_rate != 0 else float('inf')
+    lose_odds = 1 / lose_rate if lose_rate != 0 else float('inf')
+
+    return round(win_odds, 2), round(lose_odds, 2)
+
+
 async def update_lol_accounts():
     db = services.db
     accounts = db.query(LeagueOfLegendsAccount).all()
 
     for account in accounts:
         try:
-            match_ids = get_match_ids_by_puuid(account.puuid, region=account.region, count=1)
+            match_ids = await get_match_ids_by_puuid(account.puuid, region=account.region, count=1)
             last_match_id = match_ids[0]
-            match_details = get_match_details(last_match_id, account.region)
+            match_details = await get_match_details(last_match_id, account.region)
             last_match_game_id = match_details['info']['gameId']
 
-            live_match_details = get_live_match_details(account.puuid, account.region)
+            live_match_details = await get_live_match_details(account.puuid, account.region)
             live_match_game_id = live_match_details.get('gameId', None)
 
             if lol_accounts.get(account.puuid, None) is not None:
@@ -262,23 +240,25 @@ async def on_ready():
 @bot.tree.command(name="set-betting-channel", description="Set the betting channel")
 @app_commands.checks.has_permissions(manage_guild=True)
 async def set_betting_channel(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True)
     guild = get_guild_by_guild_id(interaction.guild.id)
     if not guild:
         guild = create_guild(interaction.guild.id)
 
     guild.channel_id = interaction.channel.id
-    await interaction.response.send_message(f'Betting channel has been set to {interaction.channel.mention}.')
+    await interaction.followup.send(f'Betting channel has been set to {interaction.channel.mention}.')
 
 
 @bot.tree.command(name="set-currency", description="Set the currency for the guild")
 @app_commands.checks.has_permissions(manage_guild=True)
 async def set_currency(interaction: discord.Interaction, currency: str):
+    await interaction.response.defer(ephemeral=True)
     guild = get_guild_by_guild_id(interaction.guild.id)
     if not guild:
         guild = create_guild(interaction.guild.id)
 
     guild.currency = currency
-    await interaction.response.send_message(f'Currency has been set to {currency}.')
+    await interaction.followup.send(f'Currency has been set to {currency}.')
 
 
 @bot.tree.command(name="set-league-of-legends-account", description="Add a League of Legends account")
@@ -304,28 +284,30 @@ async def set_currency(interaction: discord.Interaction, currency: str):
 ])
 async def set_league_of_legends_account(interaction: discord.Interaction, region: app_commands.Choice[str],
                                         riot_id: str):
+    await interaction.response.defer(ephemeral=True)
+
     if "#" not in riot_id:
-        await interaction.response.send_message("Invalid format. The Riot ID must be in the format `USERNAME#TAGLINE`.")
+        await interaction.followup.send("Invalid format. The Riot ID must be in the format `USERNAME#TAGLINE`.")
         return
 
     username, tag_line = riot_id.split("#", 1)
 
     try:
         # Step 1: Get account by Riot ID
-        account_info = get_account_by_riot_id(username, tag_line, region.value)
+        account_info = await get_account_by_riot_id(username, tag_line, region.value)
         if 'status' in account_info and account_info['status']['status_code'] != 200:
-            await interaction.response.send_message(f"Error: {account_info['status']['message']}")
+            await interaction.followup.send(f"Error: {account_info['status']['message']}")
             return
 
         puuid = account_info.get('puuid')
         if not puuid:
-            await interaction.response.send_message("Could not retrieve PUUID from the provided Riot ID.")
+            await interaction.followup.send("Could not retrieve PUUID from the provided Riot ID.")
             return
 
         # Step 2: Get summoner by PUUID
-        summoner_info = get_summoner_by_puuid(puuid, region.value)
+        summoner_info = await get_summoner_by_puuid(puuid, region.value)
         if 'status' in summoner_info and summoner_info['status']['status_code'] != 200:
-            await interaction.response.send_message(f"Error: {summoner_info['status']['message']}")
+            await interaction.followup.send(f"Error: {summoner_info['status']['message']}")
             return
 
         # Step 3: Set League of Legends account in the database
@@ -341,16 +323,18 @@ async def set_league_of_legends_account(interaction: discord.Interaction, region
         set_lol_account(user.id, guild.id, region.value, puuid)
 
         # Step 4: Send success message
-        await interaction.response.send_message(f'Riot ID: "{riot_id}" on {region.name} has been set.')
+        await interaction.followup.send(f'Riot ID: "{riot_id}" on {region.name} has been set.')
 
     except Exception as e:
         logging.error(f"Error processing League of Legends account: {e}")
-        await interaction.response.send_message(
+        await interaction.followup.send(
             "An error occurred while setting the League of Legends account. Please try again later.")
 
 
 @bot.tree.command(name="wallet", description="Check the amount of currency in your wallet")
 async def wallet(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True)
+
     user = get_user_by_discord_account_id(interaction.user.id)
     if not user:
         user = create_user(interaction.user.id)
@@ -363,7 +347,7 @@ async def wallet(interaction: discord.Interaction):
     if not bank:
         bank = create_bank(user.id, guild.id)
 
-    await interaction.response.send_message(f'You have {bank.coins} {guild.currency} in your wallet.')
+    await interaction.followup.send(f'You have {bank.coins} {guild.currency} in your wallet.')
 
 
 class BetView(View):
@@ -383,17 +367,17 @@ class BetView(View):
         embed.set_field_at(2, name="Amount Bet", value=f"{self.amount}")
         await interaction.message.edit(embed=embed, view=self)
 
-    @discord.ui.button(label='+', style=discord.ButtonStyle.primary)
+    @discord.ui.button(label='+', style=discord.ButtonStyle.primary, row=0)
     async def add(self, button: Button, interaction: discord.Interaction):
         self.current_operation_is_add = True
         await self.update_message(interaction)
 
-    @discord.ui.button(label='-', style=discord.ButtonStyle.primary)
+    @discord.ui.button(label='-', style=discord.ButtonStyle.primary, row=0)
     async def subtract(self, button: Button, interaction: discord.Interaction):
         self.current_operation_is_add = False
         await self.update_message(interaction)
 
-    @discord.ui.button(label='1', style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label='1', style=discord.ButtonStyle.secondary, row=1)
     async def add1(self, button: Button, interaction: discord.Interaction):
         if self.current_operation_is_add:
             self.amount += 1
@@ -401,7 +385,7 @@ class BetView(View):
             self.amount = max(0, self.amount - 1)
         await self.update_message(interaction)
 
-    @discord.ui.button(label='5', style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label='5', style=discord.ButtonStyle.secondary, row=1)
     async def add5(self, button: Button, interaction: discord.Interaction):
         if self.current_operation_is_add:
             self.amount += 5
@@ -409,7 +393,7 @@ class BetView(View):
             self.amount = max(0, self.amount - 5)
         await self.update_message(interaction)
 
-    @discord.ui.button(label='10', style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label='10', style=discord.ButtonStyle.secondary, row=1)
     async def add10(self, button: Button, interaction: discord.Interaction):
         if self.current_operation_is_add:
             self.amount += 10
@@ -417,7 +401,7 @@ class BetView(View):
             self.amount = max(0, self.amount - 10)
         await self.update_message(interaction)
 
-    @discord.ui.button(label='25', style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label='25', style=discord.ButtonStyle.secondary, row=1)
     async def add25(self, button: Button, interaction: discord.Interaction):
         if self.current_operation_is_add:
             self.amount += 25
@@ -425,18 +409,19 @@ class BetView(View):
             self.amount = max(0, self.amount - 25)
         await self.update_message(interaction)
 
-    @discord.ui.button(label='Win', style=discord.ButtonStyle.success)
+    @discord.ui.button(label='Win', style=discord.ButtonStyle.success, row=2)
     async def bet_win(self, button: Button, interaction: discord.Interaction):
         self.outcome_win = True
         await self.update_message(interaction)
 
-    @discord.ui.button(label='Lose', style=discord.ButtonStyle.danger)
+    @discord.ui.button(label='Lose', style=discord.ButtonStyle.danger, row=2)
     async def bet_lose(self, button: Button, interaction: discord.Interaction):
         self.outcome_win = False
         await self.update_message(interaction)
 
-    @discord.ui.button(label='Lock In', style=discord.ButtonStyle.primary)
+    @discord.ui.button(label='Lock In', style=discord.ButtonStyle.primary, row=3)
     async def lock_in(self, button: Button, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
         if self.amount > 0 and self.outcome_win is not None:
             wager = {
                 'discord_id': self.account.user.id,
@@ -445,12 +430,10 @@ class BetView(View):
                 'wagered_amount': self.amount
             }
             self.bet[self.account.puuid]['bets'].append(wager)
-            await interaction.response.send_message(f"Bet locked in: {self.amount} on {self.outcome_win}",
-                                                    ephemeral=True)
+            await interaction.followup.send(f"Bet locked in: {self.amount} on {self.outcome_win}")
             self.stop()
         else:
-            await interaction.response.send_message("You must choose an amount and an outcome to lock in the bet.",
-                                                    ephemeral=True)
+            await interaction.followup.send("You must choose an amount and an outcome to lock in the bet.")
 
 
 async def send_match_start_discord_message(account: LeagueOfLegendsAccount, match_details, timeout=3):
@@ -476,7 +459,8 @@ async def send_match_start_discord_message(account: LeagueOfLegendsAccount, matc
 
                 name = discord_user.display_name
                 pfp = discord_user.display_avatar
-                riot_id = get_account_info_by_puuid(account.puuid, account.region)['gameName']
+                riot_account = await get_account_info_by_puuid(account.puuid, account.region)
+                riot_id = riot_account.get('gameName')
                 logging.info(f"name={name}, pfp={pfp}, riot_id={riot_id}")
 
                 for participant in match_details['participants']:
@@ -484,7 +468,7 @@ async def send_match_start_discord_message(account: LeagueOfLegendsAccount, matc
 
                     if participant['puuid'] == account.puuid:
                         champion_id = participant['championId']
-                        champion_icon = get_champion_icon(champion_id)
+                        champion_icon = await get_champion_icon(champion_id)
                         logging.info(f"champion_id={champion_id}, champion_icon={champion_icon}")
 
                         message = discord.Embed(title=f"Game started for {riot_id}")
