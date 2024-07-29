@@ -181,6 +181,7 @@ async def update_lol_accounts():
     accounts = db.query(LeagueOfLegendsAccount).all()
 
     for account in accounts:
+        await asyncio.sleep(0.1)
         try:
             match_ids = await get_match_ids_by_puuid(account.puuid, region=account.region, count=1)
             last_match_id = match_ids[0]
@@ -240,7 +241,7 @@ async def on_ready():
 @bot.tree.command(name="set-betting-channel", description="Set the betting channel")
 @app_commands.checks.has_permissions(manage_guild=True)
 async def set_betting_channel(interaction: discord.Interaction):
-    await interaction.response.defer(ephemeral=True)
+    await interaction.response.defer()
     guild = get_guild_by_guild_id(interaction.guild.id)
     if not guild:
         guild = create_guild(interaction.guild.id)
@@ -252,7 +253,7 @@ async def set_betting_channel(interaction: discord.Interaction):
 @bot.tree.command(name="set-currency", description="Set the currency for the guild")
 @app_commands.checks.has_permissions(manage_guild=True)
 async def set_currency(interaction: discord.Interaction, currency: str):
-    await interaction.response.defer(ephemeral=True)
+    await interaction.response.defer()
     guild = get_guild_by_guild_id(interaction.guild.id)
     if not guild:
         guild = create_guild(interaction.guild.id)
@@ -284,7 +285,7 @@ async def set_currency(interaction: discord.Interaction, currency: str):
 ])
 async def set_league_of_legends_account(interaction: discord.Interaction, region: app_commands.Choice[str],
                                         riot_id: str):
-    await interaction.response.defer(ephemeral=True)
+    await interaction.response.defer()
 
     if "#" not in riot_id:
         await interaction.followup.send("Invalid format. The Riot ID must be in the format `USERNAME#TAGLINE`.")
@@ -333,7 +334,7 @@ async def set_league_of_legends_account(interaction: discord.Interaction, region
 
 @bot.tree.command(name="wallet", description="Check the amount of currency in your wallet")
 async def wallet(interaction: discord.Interaction):
-    await interaction.response.defer(ephemeral=True)
+    await interaction.response.defer()
 
     user = get_user_by_discord_account_id(interaction.user.id)
     if not user:
@@ -421,7 +422,7 @@ class BetView(View):
 
     @discord.ui.button(label='Lock In', style=discord.ButtonStyle.primary, row=3)
     async def lock_in(self, button: Button, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
+        await interaction.response.defer()
         if self.amount > 0 and self.outcome_win is not None:
             wager = {
                 'discord_id': self.account.user.id,
@@ -492,4 +493,4 @@ async def send_match_start_discord_message(account: LeagueOfLegendsAccount, matc
 async def update_accounts():
     while True:
         await update_lol_accounts()
-        await asyncio.sleep(3)
+        await asyncio.sleep(1)
