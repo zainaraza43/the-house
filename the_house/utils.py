@@ -181,15 +181,22 @@ async def update_lol_accounts():
     accounts = db.query(LeagueOfLegendsAccount).all()
 
     for account in accounts:
-        await asyncio.sleep(0.1)
         try:
             match_ids = await get_match_ids_by_puuid(account.puuid, region=account.region, count=1)
             last_match_id = match_ids[0]
             match_details = await get_match_details(last_match_id, account.region)
             last_match_game_id = match_details['info']['gameId']
 
-            live_match_details = await get_live_match_details(account.puuid, account.region)
+            try:
+                live_match_details = await get_live_match_details(account.puuid, account.region)
+            except Exception as e:
+                logging.error(f"Error getting live match details: {e}")
+                live_match_details = {}
+
             live_match_game_id = live_match_details.get('gameId', None)
+
+            logging.info(
+                f"Processing account {account.puuid} (last_match_game_id={last_match_game_id}, live_match_game_id={live_match_game_id}), lol_accounts={lol_accounts}")
 
             if lol_accounts.get(account.puuid, None) is not None:
                 if not live_match_game_id:
@@ -205,7 +212,7 @@ async def update_lol_accounts():
                         logging.info(
                             f"Game just started for {account.puuid} ({lol_accounts[account.puuid]} != {live_match_game_id})")
                         queue_id = live_match_details['gameQueueConfigId']
-                        win_odds, lose_odds = calculate_odds(account.puuid, account.region, queue_id)
+                        win_odds, lose_odds = await calculate_odds(account.puuid, account.region, queue_id)
                         new_game_bet = {
                             "game_id": live_match_game_id,
                             "match_id": None,
@@ -493,4 +500,4 @@ async def send_match_start_discord_message(account: LeagueOfLegendsAccount, matc
 async def update_accounts():
     while True:
         await update_lol_accounts()
-        await asyncio.sleep(1)
+        await asyncio.sleep(1.5)
