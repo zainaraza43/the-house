@@ -13,7 +13,7 @@ from services import services
 bot = services.bot
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(funcName)s - %(message)s'
+    format='%(asctime)s - %(levelname)s - %(funcName)s - %(lineno)d - %(message)s'
 )
 
 CONTINENT_TO_REGION = {
@@ -36,7 +36,7 @@ CONTINENT_TO_REGION = {
     "vn2": "sea"
 }
 
-lol_accounts = {}
+cached_league_of_legends_games = {}
 bets = {}
 
 
@@ -122,7 +122,7 @@ async def get_summoner_by_puuid(puuid: str, region: str) -> dict:
     return await fetch_json(url)
 
 
-async def get_match_ids_by_puuid(puuid: str, region: str, start=0, count=1, queue_id=None) -> list:
+async def get_match_ids_by_puuid(puuid: str, region: str, count: int, start=0, queue_id=None) -> list:
     continent = CONTINENT_TO_REGION.get(region)
     if queue_id is not None:
         url = f"https://{continent}.api.riotgames.com/lol/match/v5/matches/by-puuid/{puuid}/ids?queue={queue_id}&start={start}&count={count}&api_key={RIOT_API_KEY}"
@@ -176,62 +176,60 @@ async def calculate_odds(puuid: str, region: str, queue_id=int) -> tuple:
     return round(win_odds, 2), round(lose_odds, 2)
 
 
-async def update_lol_accounts():
+async def update_league_of_legends_accounts():
     db = services.db
     accounts = db.query(LeagueOfLegendsAccount).all()
 
     for account in accounts:
         try:
-            match_ids = await get_match_ids_by_puuid(account.puuid, region=account.region, count=1)
-            last_match_id = match_ids[0]
-            match_details = await get_match_details(last_match_id, account.region)
-            last_match_game_id = match_details['info']['gameId']
-
-            try:
-                live_match_details = await get_live_match_details(account.puuid, account.region)
-            except Exception as e:
-                logging.error(f"Error getting live match details: {e}")
-                live_match_details = {}
-
-            live_match_game_id = live_match_details.get('gameId', None)
-
-            logging.info(
-                f"Processing account {account.puuid} (last_match_game_id={last_match_game_id}, live_match_game_id={live_match_game_id}), lol_accounts={lol_accounts}")
-
-            if lol_accounts.get(account.puuid, None) is not None:
-                if not live_match_game_id:
-                    # game just ended
-                    if lol_accounts.get(account.puuid).get('live_match', None) == last_match_game_id:
-                        logging.info(
-                            f"Game just ended for {account.puuid} ({lol_accounts[account.puuid]} == {last_match_game_id})")
-                        # await send_match_start_discord_message(account.guild.guild_id, account.guild.channel_id,
-                        #                                        f"Game just ended for <@{account.user.discord_account_id}>")
-                else:
-                    # game just started
-                    if lol_accounts.get(account.puuid).get('live_match', None) != live_match_game_id:
-                        logging.info(
-                            f"Game just started for {account.puuid} ({lol_accounts[account.puuid]} != {live_match_game_id})")
-                        queue_id = live_match_details['gameQueueConfigId']
-                        win_odds, lose_odds = await calculate_odds(account.puuid, account.region, queue_id)
-                        new_game_bet = {
-                            "game_id": live_match_game_id,
-                            "match_id": None,
-                            "win_odds": win_odds,
-                            "lose_odds": lose_odds,
-                            "bets": {}
-                        }
-                        bets[account.puuid] = new_game_bet
-                        await send_match_start_discord_message(account, live_match_details)
-
-            lol_accounts[account.puuid] = {
-                'last_match': last_match_game_id,
-                'live_match': live_match_game_id
-            }
-
-        except KeyError as ke:
-            logging.error(f"KeyError processing account {account.puuid}: {ke}")
+            await process_league_of_legends_account(account)
         except Exception as e:
-            logging.error(f"Error processing account {account.puuid}: {e}")
+            logging.error(f"Error processing League of Legends account: {e}")
+
+
+async def process_league_of_legends_account(account: LeagueOfLegendsAccount):
+    # Account properties
+    puuid = account.puuid
+    region = account.region
+
+    # Get Previous Match ID
+    match_ids = await get_match_ids_by_puuid(puuid=puuid, region=region, count=1)
+    last_match_id = match_ids[0]
+
+    # Get Previous Match Details
+    previous_match_details = await get_match_details(last_match_id, region)
+
+    # Get Live Match Details
+    try:
+        live_match_details = await get_live_match_details(puuid, region)
+    except Exception as e:
+        logging.error(f"Error getting live match details for puuid {puuid} in region {region}: {e}")
+        live_match_details = {}
+
+    # get ids of previous and live match
+    live_match_game_id = live_match_details.get('gameId', None)
+    previous_match_info = previous_match_details.get('info', None)
+    if not previous_match_info:
+        logging.error(f"Could not get previous match info for puuid {puuid}")
+        raise Exception(f"Could not get previous match info for puuid {puuid}")
+    previous_match_game_id = previous_match_info.get('gameId', None)
+
+    cached_league_of_legends_games[puuid] = {
+        'previous_match_game_id': previous_match_game_id,
+        'live_match_game_id': live_match_game_id
+    }
+
+
+async def league_of_legends_account_just_start_game(live_match_details: dict, puuid: str) -> bool:
+    if not live_match_details:
+        return False
+
+    cached_player_matches = cached_league_of_legends_games[puuid]
+
+    if not cached_player_matches or cached_player_matches['live_match_game_id'] == live_match_details['gameId']:
+        return False
+
+    return True
 
 
 @bot.event
@@ -239,8 +237,8 @@ async def on_ready():
     try:
         await bot.tree.sync()
     except Exception as e:
-        print(e)
-    print(f'Bot is ready. Logged in as {bot.user}')
+        logging.error(e)
+    logging.info(f'Bot is ready. Logged in as {bot.user}')
 
     await asyncio.create_task(update_accounts())
 
@@ -499,5 +497,5 @@ async def send_match_start_discord_message(account: LeagueOfLegendsAccount, matc
 
 async def update_accounts():
     while True:
-        await update_lol_accounts()
+        await update_league_of_legends_accounts()
         await asyncio.sleep(1.5)
