@@ -214,6 +214,17 @@ async def process_league_of_legends_account(account: LeagueOfLegendsAccount):
         raise Exception(f"Could not get previous match info for puuid {puuid}")
     previous_match_game_id = previous_match_info.get('gameId', None)
 
+    if await league_of_legends_account_just_start_game(live_match_details, puuid):
+        queue_id = previous_match_info.get('queueId', None)
+        win_odds, lose_odds = await calculate_odds(puuid, region, queue_id=queue_id)
+        bets[puuid] = {
+            'win_odds': win_odds,
+            'lose_odds': lose_odds,
+            'bets': []
+        }
+        await send_match_start_discord_message(account, live_match_details)
+        logging.info(f"Sent match start message for puuid {puuid}")
+
     cached_league_of_legends_games[puuid] = {
         'previous_match_game_id': previous_match_game_id,
         'live_match_game_id': live_match_game_id
@@ -229,6 +240,7 @@ async def league_of_legends_account_just_start_game(live_match_details: dict, pu
     if not cached_player_matches or cached_player_matches['live_match_game_id'] == live_match_details['gameId']:
         return False
 
+    logging.info(f"live_match_details={live_match_details}, cached_player_matches={cached_player_matches}")
     return True
 
 
@@ -371,12 +383,18 @@ class BetView(View):
     async def update_message(self, interaction: discord.Interaction):
         embed = interaction.message.embeds[0]
         embed.set_field_at(2, name="Amount Bet", value=f"{self.amount}")
+        # Update the label of the bet amount button
+        self.amount_button.label = f"${self.amount}"
         await interaction.message.edit(embed=embed, view=self)
 
     @discord.ui.button(label='+', style=discord.ButtonStyle.primary, row=0)
     async def add(self, button: Button, interaction: discord.Interaction):
         self.current_operation_is_add = True
         await self.update_message(interaction)
+
+    @discord.ui.button(label='$0', style=discord.ButtonStyle.secondary, row=0, disabled=True)
+    async def amount_button(self, button: Button, interaction: discord.Interaction):
+        pass
 
     @discord.ui.button(label='-', style=discord.ButtonStyle.primary, row=0)
     async def subtract(self, button: Button, interaction: discord.Interaction):
@@ -498,4 +516,4 @@ async def send_match_start_discord_message(account: LeagueOfLegendsAccount, matc
 async def update_accounts():
     while True:
         await update_league_of_legends_accounts()
-        await asyncio.sleep(1.5)
+        await asyncio.sleep(3)
