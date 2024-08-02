@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import time
 
 import aiohttp
 import discord
@@ -37,7 +38,7 @@ CONTINENT_TO_REGION = {
 }
 
 cached_league_of_legends_games = {}
-bets = {}
+active_bets = {}
 
 
 def create_user(discord_account_id: int):
@@ -94,6 +95,16 @@ def set_lol_account(user_id: int, guild_id: int, region: str, puuid: str):
         )
         db.add(new_account)
         db.commit()
+
+
+def get_lol_account(user_id: int, guild_id: int):
+    db = services.db
+    account = db.query(LeagueOfLegendsAccount).filter_by(
+        user_id=user_id,
+        guild_id=guild_id
+    ).first()
+
+    return account
 
 
 async def fetch_json(url):
@@ -180,6 +191,8 @@ async def update_league_of_legends_accounts():
     db = services.db
     accounts = db.query(LeagueOfLegendsAccount).all()
 
+    logging.info("Current bets = " + str(active_bets))
+
     for account in accounts:
         try:
             await process_league_of_legends_account(account)
@@ -216,10 +229,12 @@ async def process_league_of_legends_account(account: LeagueOfLegendsAccount):
 
     if await league_of_legends_account_just_start_game(live_match_details, puuid):
         queue_id = previous_match_info.get('queueId', None)
+        game_start_time = live_match_details.get("gameStartTime", None)
         win_odds, lose_odds = await calculate_odds(puuid, region, queue_id=queue_id)
-        bets[puuid] = {
+        active_bets[puuid] = {
             'win_odds': win_odds,
             'lose_odds': lose_odds,
+            'start_time': game_start_time,
             'bets': []
         }
         await send_match_start_discord_message(account, live_match_details)
@@ -242,6 +257,12 @@ async def league_of_legends_account_just_start_game(live_match_details: dict, pu
 
     logging.info(f"live_match_details={live_match_details}, cached_player_matches={cached_player_matches}")
     return True
+
+
+def has_elapsed(start_time: int, end_time: int, minutes: int) -> bool:
+    time_difference_seconds = end_time - start_time
+    minutes_in_seconds = minutes * 60
+    return time_difference_seconds >= minutes_in_seconds
 
 
 @bot.event
@@ -368,22 +389,98 @@ async def wallet(interaction: discord.Interaction):
     await interaction.followup.send(f'You have {bank.coins} {guild.currency} in your wallet.')
 
 
+@bot.tree.command(name="bet", description="Bet on the outcome of the current game")
+async def bet(interaction: discord.Interaction, discord_user: discord.User):
+    await interaction.response.defer(ephemeral=True)
+
+    logging.info(f"Received bet command from user {interaction.user.id} for target user {discord_user.id}")
+
+    # Fetch or create the user
+    user = get_user_by_discord_account_id(interaction.user.id)
+    if not user:
+        logging.info(f"No user found for {interaction.user.id}. Creating new user.")
+        user = create_user(discord_user.id)
+
+    # Fetch or create the target user
+    target_user = get_user_by_discord_account_id(discord_user.id)
+    if not target_user:
+        logging.info(f"No target user found for {discord_user.id}. Creating new user.")
+        target_user = create_user(discord_user.id)
+        return
+
+    # Fetch the guild information
+    guild = get_guild_by_guild_id(interaction.guild.id)
+    logging.debug(f"Retrieved guild information for {interaction.guild.id}: {guild}")
+
+    # Get the League of Legends account for the target user
+    target_league_of_legends_account = get_lol_account(target_user.id, guild.id)
+    if not target_league_of_legends_account:
+        logging.warning(f"Target user {discord_user.display_name} does not have a League of Legends account set.")
+        await interaction.followup.send(
+            f"{discord_user.display_name} does not have a League of Legends account set.",
+            ephemeral=True
+        )
+        return
+
+    # Check for active bets
+    betting_info_for_target_user = active_bets.get(target_league_of_legends_account.puuid, None)
+    if not betting_info_for_target_user:
+        logging.warning(f"Target user {discord_user.display_name} does not have an active bet.")
+        await interaction.followup.send(
+            f"{discord_user.display_name} does not have an active bet.",
+            ephemeral=True
+        )
+        return
+
+    # Check if the bet has expired
+    game_start_time = betting_info_for_target_user.get('start_time')
+    current_time = int(time.time())
+
+    logging.debug(f"Game start time: {game_start_time}, current time: {current_time}")
+
+    if has_elapsed(game_start_time, current_time, 2):
+        logging.info(f"Bet for {discord_user.display_name} has expired.")
+        await interaction.followup.send(
+            f"Bet for {discord_user.display_name} has expired.",
+            ephemeral=True
+        )
+        return
+
+    # Create a bet view and send it to the user
+    view = BetView(account=target_league_of_legends_account, active_bets=betting_info_for_target_user)
+    logging.info(f"Sending bet view to user {interaction.user.id}")
+    await interaction.followup.send("Place your bet:", view=view, ephemeral=True)
+
+
 class BetView(View):
-    def __init__(self, account: LeagueOfLegendsAccount, bet):
+    def __init__(self, account: LeagueOfLegendsAccount, active_bets):
         super().__init__(timeout=None)
         self.account = account
-        self.bet = bet
+        self.bet = active_bets
         self.amount = 0
-        self.current_operation_is_add = True
+        self.current_operation_is_add = None
         self.outcome_win = None
 
     async def update_message(self, interaction: discord.Interaction):
-        interaction.response.defer()
-        # Update the label of the bet amount button
         self.amount_button.label = f"{self.amount}"
+
+        if self.current_operation_is_add is True:
+            self.add.style = discord.ButtonStyle.success
+            self.subtract.style = discord.ButtonStyle.secondary
+        elif self.current_operation_is_add is False:
+            self.add.style = discord.ButtonStyle.secondary
+            self.subtract.style = discord.ButtonStyle.success
+
+        if self.outcome_win is True:
+            self.bet_win.style = discord.ButtonStyle.success
+            self.bet_lose.style = discord.ButtonStyle.secondary
+        elif self.outcome_win is False:
+            self.bet_win.style = discord.ButtonStyle.secondary
+            self.bet_lose.style = discord.ButtonStyle.success
+
         await interaction.response.edit_message(view=self)
 
-    @discord.ui.button(label='-', style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label='-', style=discord.ButtonStyle.secondary, row=0)
     async def subtract(self, interaction: discord.Interaction, button: Button):
         self.current_operation_is_add = False
         await self.update_message(interaction)
@@ -392,7 +489,7 @@ class BetView(View):
     async def amount_button(self, interaction: discord.Interaction, button: Button):
         pass
 
-    @discord.ui.button(label='+', style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label='+', style=discord.ButtonStyle.secondary, row=0)
     async def add(self, interaction: discord.Interaction, button: Button):
         self.current_operation_is_add = True
         await self.update_message(interaction)
@@ -429,30 +526,52 @@ class BetView(View):
             self.amount = max(0, self.amount - 25)
         await self.update_message(interaction)
 
-    @discord.ui.button(label='Win', style=discord.ButtonStyle.success, row=2)
+    @discord.ui.button(label='Win', style=discord.ButtonStyle.secondary, row=2)
     async def bet_win(self, interaction: discord.Interaction, button: Button):
         self.outcome_win = True
         await self.update_message(interaction)
 
-    @discord.ui.button(label='Lose', style=discord.ButtonStyle.danger, row=2)
+    @discord.ui.button(label='Lose', style=discord.ButtonStyle.secondary, row=2)
     async def bet_lose(self, interaction: discord.Interaction, button: Button):
         self.outcome_win = False
         await self.update_message(interaction)
 
     @discord.ui.button(label='Lock In', style=discord.ButtonStyle.primary, row=3)
     async def lock_in(self, interaction: discord.Interaction, button: Button):
+        logging.info(f"User {interaction.user.id} attempted to lock in a bet.")
+
+        game_start_time = active_bets.get('start_time')
+        current_time = int(time.time())
+
+        if has_elapsed(game_start_time, current_time, 2):
+            logging.warning(f"Bet expired for user {interaction.user.id}. Game start time: {game_start_time}, current time: {current_time}.")
+            await interaction.response.send_message(
+                "Bet has expired.",
+                ephemeral=True
+            )
+            return
+
         if self.amount > 0 and self.outcome_win is not None:
+            user = get_user_by_discord_account_id(interaction.user.id)
             wager = {
-                'discord_id': self.account.user.id,
+                'discord_id': user.id,
                 'server_id': self.account.guild.id,
                 'wagered_win': self.outcome_win,
                 'wagered_amount': self.amount
             }
             self.bet[self.account.puuid]['bets'].append(wager)
-            await interaction.response.send_message(f"Bet locked in: {self.amount} on {self.outcome_win}", ephemeral=True)
+            logging.info(f"Bet locked in for user {interaction.user.id}: Amount: {self.amount}, Outcome: {'Win' if self.outcome_win else 'Lose'}.")
+            await interaction.response.send_message(
+                f"Bet locked in: {self.amount} on {'Win' if self.outcome_win else 'Lose'}",
+                ephemeral=True
+            )
             self.stop()
         else:
-            await interaction.response.send_message("You must choose an amount and an outcome to lock in the bet.", ephemeral=True)
+            logging.warning(f"Bet lock-in failed for user {interaction.user.id}. Amount: {self.amount}, Outcome: {self.outcome_win}.")
+            await interaction.response.send_message(
+                "You must choose an amount and an outcome to lock in the bet.",
+                ephemeral=True
+            )
 
 
 async def send_match_start_discord_message(account: LeagueOfLegendsAccount, match_details, timeout=3):
@@ -470,7 +589,7 @@ async def send_match_start_discord_message(account: LeagueOfLegendsAccount, matc
             logging.info(f"channel={channel}")
 
             if channel:
-                bet = bets.get(account.puuid)
+                bet = active_bets.get(account.puuid)
                 logging.info(f"bet={bet}")
 
                 discord_user = await bot.fetch_user(account.user.discord_account_id)
@@ -496,10 +615,8 @@ async def send_match_start_discord_message(account: LeagueOfLegendsAccount, matc
                         message.add_field(name="Win odds", value=bet['win_odds'])
                         message.add_field(name="Lose odds", value=bet['lose_odds'])
 
-                        view = BetView(account=account, bet=bet)
-
                         logging.info("Sending message to channel")
-                        await asyncio.wait_for(channel.send(embed=message, view=view), timeout)
+                        await asyncio.wait_for(channel.send(embed=message), timeout)
                         logging.info("Message sent successfully")
 
     except asyncio.TimeoutError:
