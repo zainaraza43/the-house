@@ -43,10 +43,22 @@ active_bets = {}
 
 def create_user(discord_account_id: int):
     db = services.db
-    user = User(discord_account_id=discord_account_id)
-    db.add(user)
-    db.commit()
-    return user
+    existing_user = db.query(User).filter_by(discord_account_id=discord_account_id).first()
+    if existing_user:
+        logging.info(f"User with discord_account_id {discord_account_id} already exists.")
+        return existing_user
+
+    # Create a new user if not found
+    new_user = User(discord_account_id=discord_account_id)
+    db.add(new_user)
+    try:
+        db.commit()  # Commit the transaction
+        logging.info(f"Created new user with discord_account_id {discord_account_id}.")
+    except Exception as e:
+        db.rollback()  # Rollback in case of any errors
+        logging.error(f"Error creating user: {e}")
+        raise
+    return new_user
 
 
 def get_user_by_discord_account_id(discord_account_id: int):
