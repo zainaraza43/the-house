@@ -380,7 +380,7 @@ class BetView(View):
     async def update_message(self, interaction: discord.Interaction):
         interaction.response.defer()
         # Update the label of the bet amount button
-        self.amount_button.label = f"${self.amount}"
+        self.amount_button.label = f"{self.amount}"
         await interaction.response.edit_message(view=self)
 
     @discord.ui.button(label='-', style=discord.ButtonStyle.primary, row=0)
