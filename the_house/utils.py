@@ -377,32 +377,28 @@ class BetView(View):
         self.current_operation_is_add = True
         self.outcome_win = None
 
-    async def interaction_check(self, interaction: discord.Interaction):
-        return interaction.user.id == self.account.id
-
     async def update_message(self, interaction: discord.Interaction):
-        embed = interaction.message.embeds[0]
-        embed.set_field_at(2, name="Amount Bet", value=f"{self.amount}")
+        interaction.response.defer()
         # Update the label of the bet amount button
         self.amount_button.label = f"${self.amount}"
-        await interaction.message.edit(embed=embed, view=self)
-
-    @discord.ui.button(label='+', style=discord.ButtonStyle.primary, row=0)
-    async def add(self, button: Button, interaction: discord.Interaction):
-        self.current_operation_is_add = True
-        await self.update_message(interaction)
-
-    @discord.ui.button(label='$0', style=discord.ButtonStyle.secondary, row=0, disabled=True)
-    async def amount_button(self, button: Button, interaction: discord.Interaction):
-        pass
+        await interaction.response.edit_message(view=self)
 
     @discord.ui.button(label='-', style=discord.ButtonStyle.primary, row=0)
-    async def subtract(self, button: Button, interaction: discord.Interaction):
+    async def subtract(self, interaction: discord.Interaction, button: Button):
         self.current_operation_is_add = False
         await self.update_message(interaction)
 
+    @discord.ui.button(label='0', style=discord.ButtonStyle.secondary, row=0, disabled=True)
+    async def amount_button(self, interaction: discord.Interaction, button: Button):
+        pass
+
+    @discord.ui.button(label='+', style=discord.ButtonStyle.primary, row=0)
+    async def add(self, interaction: discord.Interaction, button: Button):
+        self.current_operation_is_add = True
+        await self.update_message(interaction)
+
     @discord.ui.button(label='1', style=discord.ButtonStyle.secondary, row=1)
-    async def add1(self, button: Button, interaction: discord.Interaction):
+    async def add1(self, interaction: discord.Interaction, button: Button):
         if self.current_operation_is_add:
             self.amount += 1
         else:
@@ -410,7 +406,7 @@ class BetView(View):
         await self.update_message(interaction)
 
     @discord.ui.button(label='5', style=discord.ButtonStyle.secondary, row=1)
-    async def add5(self, button: Button, interaction: discord.Interaction):
+    async def add5(self, interaction: discord.Interaction, button: Button):
         if self.current_operation_is_add:
             self.amount += 5
         else:
@@ -418,7 +414,7 @@ class BetView(View):
         await self.update_message(interaction)
 
     @discord.ui.button(label='10', style=discord.ButtonStyle.secondary, row=1)
-    async def add10(self, button: Button, interaction: discord.Interaction):
+    async def add10(self, interaction: discord.Interaction, button: Button):
         if self.current_operation_is_add:
             self.amount += 10
         else:
@@ -426,7 +422,7 @@ class BetView(View):
         await self.update_message(interaction)
 
     @discord.ui.button(label='25', style=discord.ButtonStyle.secondary, row=1)
-    async def add25(self, button: Button, interaction: discord.Interaction):
+    async def add25(self, interaction: discord.Interaction, button: Button):
         if self.current_operation_is_add:
             self.amount += 25
         else:
@@ -434,18 +430,17 @@ class BetView(View):
         await self.update_message(interaction)
 
     @discord.ui.button(label='Win', style=discord.ButtonStyle.success, row=2)
-    async def bet_win(self, button: Button, interaction: discord.Interaction):
+    async def bet_win(self, interaction: discord.Interaction, button: Button):
         self.outcome_win = True
         await self.update_message(interaction)
 
     @discord.ui.button(label='Lose', style=discord.ButtonStyle.danger, row=2)
-    async def bet_lose(self, button: Button, interaction: discord.Interaction):
+    async def bet_lose(self, interaction: discord.Interaction, button: Button):
         self.outcome_win = False
         await self.update_message(interaction)
 
     @discord.ui.button(label='Lock In', style=discord.ButtonStyle.primary, row=3)
-    async def lock_in(self, button: Button, interaction: discord.Interaction):
-        await interaction.response.defer()
+    async def lock_in(self, interaction: discord.Interaction, button: Button):
         if self.amount > 0 and self.outcome_win is not None:
             wager = {
                 'discord_id': self.account.user.id,
@@ -454,10 +449,10 @@ class BetView(View):
                 'wagered_amount': self.amount
             }
             self.bet[self.account.puuid]['bets'].append(wager)
-            await interaction.followup.send(f"Bet locked in: {self.amount} on {self.outcome_win}")
+            await interaction.response.send_message(f"Bet locked in: {self.amount} on {self.outcome_win}", ephemeral=True)
             self.stop()
         else:
-            await interaction.followup.send("You must choose an amount and an outcome to lock in the bet.")
+            await interaction.response.send_message("You must choose an amount and an outcome to lock in the bet.", ephemeral=True)
 
 
 async def send_match_start_discord_message(account: LeagueOfLegendsAccount, match_details, timeout=3):
