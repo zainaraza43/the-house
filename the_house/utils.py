@@ -453,10 +453,10 @@ async def bet(interaction: discord.Interaction, discord_user: discord.User):
 
 
 class BetView(View):
-    def __init__(self, account: LeagueOfLegendsAccount, active_bets):
+    def __init__(self, account: LeagueOfLegendsAccount, player_bets):
         super().__init__(timeout=None)
         self.account = account
-        self.bet = active_bets
+        self.player_bets = player_bets
         self.amount = 0
         self.current_operation_is_add = None
         self.outcome_win = None
@@ -533,6 +533,10 @@ class BetView(View):
 
     @discord.ui.button(label='Lose', style=discord.ButtonStyle.secondary, row=2)
     async def bet_lose(self, interaction: discord.Interaction, button: Button):
+        target_discord_id = self.account.user.discord_account_id
+        better_discord_id = interaction.user.id
+        if target_discord_id == better_discord_id:
+            button.disabled = True
         self.outcome_win = False
         await self.update_message(interaction)
 
@@ -540,11 +544,12 @@ class BetView(View):
     async def lock_in(self, interaction: discord.Interaction, button: Button):
         logging.info(f"User {interaction.user.id} attempted to lock in a bet.")
 
-        game_start_time = active_bets.get('start_time')
+        game_start_time = self.player_bets.get('start_time')
         current_time = int(time.time())
 
         if has_elapsed(game_start_time, current_time, 2):
-            logging.warning(f"Bet expired for user {interaction.user.id}. Game start time: {game_start_time}, current time: {current_time}.")
+            logging.warning(f"Bet expired for user {interaction.user.id}. Game start time: {game_start_time}, current "
+                            f"time: {current_time}.")
             await interaction.response.send_message(
                 "Bet has expired.",
                 ephemeral=True
@@ -559,7 +564,7 @@ class BetView(View):
                 'wagered_win': self.outcome_win,
                 'wagered_amount': self.amount
             }
-            self.bet[self.account.puuid]['bets'].append(wager)
+            self.player_bets['bets'].append(wager)
             logging.info(f"Bet locked in for user {interaction.user.id}: Amount: {self.amount}, Outcome: {'Win' if self.outcome_win else 'Lose'}.")
             await interaction.response.send_message(
                 f"Bet locked in: {self.amount} on {'Win' if self.outcome_win else 'Lose'}",
