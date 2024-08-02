@@ -447,7 +447,7 @@ async def bet(interaction: discord.Interaction, discord_user: discord.User):
         return
 
     # Create a bet view and send it to the user
-    view = BetView(account=target_league_of_legends_account, active_bets=betting_info_for_target_user)
+    view = BetView(account=target_league_of_legends_account, player_bets=betting_info_for_target_user)
     logging.info(f"Sending bet view to user {interaction.user.id}")
     await interaction.followup.send("Place your bet:", view=view, ephemeral=True)
 
@@ -458,7 +458,7 @@ class BetView(View):
         self.account = account
         self.player_bets = player_bets
         self.amount = 0
-        self.current_operation_is_add = None
+        self.current_operation_is_add = True
         self.outcome_win = None
 
     async def update_message(self, interaction: discord.Interaction):
