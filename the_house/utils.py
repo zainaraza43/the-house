@@ -213,6 +213,34 @@ async def calculate_odds(puuid: str, region: str, queue_id=int) -> tuple:
     return round(win_odds, 2), round(lose_odds, 2)
 
 
+async def did_player_win(puuid: str, completed_match_details: dict) -> bool:
+    for participant in completed_match_details['info']['participants']:
+        if participant['puuid'] == puuid:
+            return participant['win']
+    return False
+
+
+async def payout_winners(player_bets: dict, result_win: bool):
+    win_odds = player_bets['win_odds']
+    lose_odds = player_bets['lose_odds']
+
+    for individual_bet in player_bets['bets']:
+        payout = 0
+        discord_id = individual_bet['discord_id']
+        wagered_amount = individual_bet['wagered_amount']
+        wagered_win = individual_bet['wagered_win']
+
+        user = get_user_by_discord_account_id(discord_id)
+        bank = get_bank_by_user_and_guild(user.id, player_bets['server_id'])
+
+        if wagered_win == result_win == True:
+            payout = wagered_amount * win_odds
+        elif wagered_win == result_win == False:
+            payout = wagered_amount * lose_odds
+
+        set_bank_coins(user.id, player_bets['server_id'], bank.coins + payout)
+
+
 async def update_league_of_legends_accounts():
     db = services.db
     accounts = db.query(LeagueOfLegendsAccount).all()
@@ -266,6 +294,14 @@ async def process_league_of_legends_account(account: LeagueOfLegendsAccount):
         await send_match_start_discord_message(account, live_match_details)
         logging.info(f"Sent match start message for puuid {puuid}")
 
+    elif await league_of_legends_account_just_end_game(live_match_details, previous_match_details,
+                                                       puuid) and puuid in active_bets and active_bets[puuid][
+        'bets'] != []:
+        logging.info(f"Match ended for puuid {puuid}")
+        result_win = await did_player_win(puuid, previous_match_details)
+        await payout_winners(active_bets[puuid], result_win)
+        active_bets.pop(puuid)
+
     cached_league_of_legends_games[puuid] = {
         'previous_match_game_id': previous_match_game_id,
         'live_match_game_id': live_match_game_id
@@ -282,6 +318,20 @@ async def league_of_legends_account_just_start_game(live_match_details: dict, pu
         return False
 
     logging.info(f"live_match_details={live_match_details}, cached_player_matches={cached_player_matches}")
+    return True
+
+
+async def league_of_legends_account_just_end_game(live_match_details: dict, previous_match_details: dict,
+                                                  puuid: str) -> bool:
+    if live_match_details:
+        return False
+
+    cached_player_matches = cached_league_of_legends_games[puuid]
+
+    if not cached_player_matches or cached_player_matches['previous_match_game_id'] == previous_match_details['gameId']:
+        return False
+
+    logging.info(f"previous_match_details={previous_match_details}, cached_player_matches={cached_player_matches}")
     return True
 
 
@@ -515,7 +565,7 @@ class BetView(View):
     async def amount_button(self, interaction: discord.Interaction, button: Button):
         pass
 
-    @discord.ui.button(label='+', style=discord.ButtonStyle.secondary, row=0)
+    @discord.ui.button(label='+', style=discord.ButtonStyle.success, row=0)
     async def add(self, interaction: discord.Interaction, button: Button):
         self.current_operation_is_add = True
         await self.update_message(interaction)
@@ -660,6 +710,57 @@ async def send_match_start_discord_message(account: LeagueOfLegendsAccount, matc
                         logging.info("Sending message to channel")
                         await asyncio.wait_for(channel.send(embed=message), timeout)
                         logging.info("Message sent successfully")
+
+    except asyncio.TimeoutError:
+        logging.error(f"Sending message timed out after {timeout} seconds")
+    except Exception as e:
+        logging.error(f"An unexpected error occurred: {e}")
+
+
+async def send_match_end_discord_message(account: LeagueOfLegendsAccount, result_win: bool, bets_on_game: list,
+                                         timeout=3):
+    guild_id = account.guild.guild_id
+    channel_id = account.guild.channel_id
+
+    try:
+        guild = discord.utils.get(bot.guilds, id=guild_id)
+        if guild:
+            channel = bot.get_channel(channel_id)
+            if channel:
+                target_discord_user = await bot.fetch_user(account.user.discord_account_id)
+                name = target_discord_user.display_name
+                pfp = target_discord_user.display_avatar
+                riot_account = await get_account_info_by_puuid(account.puuid, account.region)
+                riot_id = riot_account.get('gameName')
+
+                message = discord.Embed(title=f"Game ended for {riot_id}")
+                message.set_author(name=name, icon_url=pfp)
+
+                for individual_bet in bets_on_game:
+                    discord_user = await bot.fetch_user(individual_bet['discord_id'])
+                    currency = discord_user.guild.currency
+                    name = discord_user.display_name
+                    wagered_amount = individual_bet['wagered_amount']
+                    wagered_win = individual_bet['wagered_win']
+                    win_odds = individual_bet['win_odds']
+                    lose_odds = individual_bet['lose_odds']
+
+                    logging.debug(f"Processing bet for user {name} (ID: {individual_bet['discord_id']}). "
+                                  f"Wagered {wagered_amount} {currency} on {'Win' if wagered_win else 'Lose'}.")
+
+                    if wagered_win == result_win:
+                        if result_win:
+                            message.add_field(name=f"{name} bet",
+                                              value=f"{wagered_amount} {currency} on Win: Won **{wagered_amount * win_odds} {currency}**")
+                        else:
+                            message.add_field(name=f"{name} bet",
+                                              value=f"{wagered_amount} {currency} on Lose: Won **{wagered_amount * lose_odds} {currency}**")
+                    else:
+                        message.add_field(name=f"{name} bet",
+                                          value=f"{wagered_amount} {currency} on {'Win' if wagered_win else 'Lose'}: "
+                                                f"Lost **{wagered_amount} {currency}**")
+
+                await asyncio.wait_for(channel.send(embed=message), timeout)
 
     except asyncio.TimeoutError:
         logging.error(f"Sending message timed out after {timeout} seconds")
