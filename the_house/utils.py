@@ -584,13 +584,13 @@ class BetView(View):
             )
             return
 
-        if self.amount > 0 and self.outcome_win is not None:
-            user = get_user_by_discord_account_id(interaction.user.id)
+        user = get_user_by_discord_account_id(interaction.user.id)
 
-            bank = get_bank_by_user_and_guild(user.id, self.account.guild.id)
-            if not bank:
-                bank = create_bank(user.id, self.account.guild.id)
+        bank = get_bank_by_user_and_guild(user.id, self.account.guild.id)
+        if not bank:
+            bank = create_bank(user.id, self.account.guild.id)
 
+        if 0 < self.amount <= bank.coins and self.outcome_win is not None:
             wager = {
                 'discord_id': user.id,
                 'server_id': self.account.guild.id,
@@ -599,16 +599,19 @@ class BetView(View):
             }
             self.player_bets['bets'].append(wager)
             set_bank_coins(user.id, self.account.guild.id, bank.coins - self.amount)
-            logging.info(f"Bet locked in for user {interaction.user.id}: Amount: {self.amount}, Outcome: {'Win' if self.outcome_win else 'Lose'}.")
+            logging.info(
+                f"Bet locked in for user {interaction.user.id}: Amount: {self.amount} {self.account.guild.currency}, "
+                f"Outcome: {'Win' if self.outcome_win else 'Lose'}.")
             await interaction.response.send_message(
                 f"Bet locked in: {self.amount} on {'Win' if self.outcome_win else 'Lose'}",
                 ephemeral=True
             )
             self.stop()
         else:
-            logging.warning(f"Bet lock-in failed for user {interaction.user.id}. Amount: {self.amount}, Outcome: {self.outcome_win}.")
+            logging.warning(
+                f"Bet lock-in failed for user {interaction.user.id}. Amount: {self.amount}, Outcome: {self.outcome_win}.")
             await interaction.response.send_message(
-                "You must choose an amount and an outcome to lock in the bet.",
+                "You must choose an affordable amount and an outcome to lock in the bet.",
                 ephemeral=True
             )
 
