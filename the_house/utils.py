@@ -48,14 +48,13 @@ def create_user(discord_account_id: int):
         logging.info(f"User with discord_account_id {discord_account_id} already exists.")
         return existing_user
 
-    # Create a new user if not found
     new_user = User(discord_account_id=discord_account_id)
     db.add(new_user)
     try:
-        db.commit()  # Commit the transaction
+        db.commit()
         logging.info(f"Created new user with discord_account_id {discord_account_id}.")
     except Exception as e:
-        db.rollback()  # Rollback in case of any errors
+        db.rollback()
         logging.error(f"Error creating user: {e}")
         raise
     return new_user
@@ -547,8 +546,10 @@ class BetView(View):
     async def bet_lose(self, interaction: discord.Interaction, button: Button):
         target_discord_id = self.account.user.discord_account_id
         better_discord_id = interaction.user.id
+        logging.info(f"Target Discord ID: {target_discord_id}, Better Discord ID: {better_discord_id}")
         if target_discord_id == better_discord_id:
             button.disabled = True
+            return
         self.outcome_win = False
         await self.update_message(interaction)
 
