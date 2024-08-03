@@ -81,6 +81,11 @@ def create_bank(user_id: int, guild_id: int):
     return bank
 
 
+def get_bank_by_user_and_guild(user_id: int, guild_id: int):
+    db = services.db
+    return db.query(Bank).filter_by(user_id=user_id, guild_id=guild_id).first()
+
+
 def get_guild_by_guild_id(guild_id: int):
     db = services.db
     return db.query(Guild).filter(Guild.guild_id == guild_id).first()
@@ -116,6 +121,16 @@ def get_lol_account(user_id: int, guild_id: int):
     ).first()
 
     return account
+
+
+def set_bank_coins(user_id: int, guild_id: int, coins: int):
+    db = services.db
+    bank = db.query(Bank).filter_by(user_id=user_id, guild_id=guild_id).first()
+    if bank:
+        bank.coins = coins
+        db.commit()
+    else:
+        logging.error(f"Bank not found for user_id {user_id} and guild_id {guild_id}")
 
 
 async def fetch_json(url):
@@ -571,6 +586,11 @@ class BetView(View):
 
         if self.amount > 0 and self.outcome_win is not None:
             user = get_user_by_discord_account_id(interaction.user.id)
+
+            bank = get_bank_by_user_and_guild(user.id, self.account.guild.id)
+            if not bank:
+                bank = create_bank(user.id, self.account.guild.id)
+
             wager = {
                 'discord_id': user.id,
                 'server_id': self.account.guild.id,
@@ -578,6 +598,7 @@ class BetView(View):
                 'wagered_amount': self.amount
             }
             self.player_bets['bets'].append(wager)
+            set_bank_coins(user.id, self.account.guild.id, bank.coins - self.amount)
             logging.info(f"Bet locked in for user {interaction.user.id}: Amount: {self.amount}, Outcome: {'Win' if self.outcome_win else 'Lose'}.")
             await interaction.response.send_message(
                 f"Bet locked in: {self.amount} on {'Win' if self.outcome_win else 'Lose'}",
@@ -607,8 +628,8 @@ async def send_match_start_discord_message(account: LeagueOfLegendsAccount, matc
             logging.info(f"channel={channel}")
 
             if channel:
-                bet = active_bets.get(account.puuid)
-                logging.info(f"bet={bet}")
+                player_active_bets = active_bets.get(account.puuid)
+                logging.info(f"bet={player_active_bets}")
 
                 discord_user = await bot.fetch_user(account.user.discord_account_id)
                 logging.info(f"discord_user={discord_user}")
@@ -630,8 +651,8 @@ async def send_match_start_discord_message(account: LeagueOfLegendsAccount, matc
                         message = discord.Embed(title=f"Game started for {riot_id}")
                         message.set_author(name=name, icon_url=pfp)
                         message.set_thumbnail(url=champion_icon)
-                        message.add_field(name="Win odds", value=bet['win_odds'])
-                        message.add_field(name="Lose odds", value=bet['lose_odds'])
+                        message.add_field(name="Win odds", value=player_active_bets['win_odds'])
+                        message.add_field(name="Lose odds", value=player_active_bets['lose_odds'])
 
                         logging.info("Sending message to channel")
                         await asyncio.wait_for(channel.send(embed=message), timeout)
