@@ -616,7 +616,7 @@ async def bet(interaction: discord.Interaction, discord_user: discord.User):
 
     # Check if the bet has expired
     game_start_time = betting_info_for_target_user.get('start_time')
-    current_time = int(time.time())
+    current_time = int(time.time() * 1000)
 
     logging.debug(f"Game start time: {game_start_time}, current time: {current_time}")
 
@@ -729,7 +729,7 @@ class BetView(View):
         logging.info(f"User {interaction.user.id} attempted to lock in a bet.")
 
         game_start_time = self.player_bets.get('start_time')
-        current_time = int(time.time())
+        current_time = int(time.time() * 1000)
 
         if has_elapsed(game_start_time, current_time, 2):
             logging.warning(f"Bet expired for user {interaction.user.id}. Game start time: {game_start_time}, current "
