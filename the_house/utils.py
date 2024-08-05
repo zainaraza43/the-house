@@ -284,6 +284,23 @@ async def payout_winners(player_bets: dict, result_win: bool):
     logging.info("Payout process completed")
 
 
+async def refund_bets(player_bets: dict):
+    logging.info("Starting refund process")
+    for individual_bet in player_bets['bets']:
+        discord_id = individual_bet['discord_id']
+        server_id = individual_bet['server_id']
+        wagered_amount = individual_bet['wagered_amount']
+
+        user = get_user_by_user_table_id(discord_id)
+        bank = get_bank_by_user_and_guild(discord_id, server_id)
+
+        logging.info(f"Refunding {wagered_amount} coins to user ID: {user.id}")
+        set_bank_coins(user.id, server_id, bank.coins + wagered_amount)
+        logging.info(f"Updated bank coins for user ID: {user.id} to {bank.coins + wagered_amount}")
+
+    logging.info("Refund process completed")
+
+
 async def update_league_of_legends_accounts():
     db = services.db
     accounts = db.query(LeagueOfLegendsAccount).all()
@@ -342,9 +359,14 @@ async def process_league_of_legends_account(account: LeagueOfLegendsAccount):
                                                        puuid) and puuid in active_bets:
         logging.info(f"Match ended for puuid {puuid}")
         if len(active_bets[puuid]['bets']) > 0:
-            result_win = await did_player_win(puuid, previous_match_details)
-            await payout_winners(active_bets[puuid], result_win)
-            await send_match_end_discord_message(account, result_win, active_bets[puuid])
+            did_remake_happen = previous_match_details['participants'][0]['gameEndedInEarlySurrender']
+            if did_remake_happen:
+                await refund_bets(active_bets[puuid])
+                logging.info(f"Remake happened for puuid {puuid}")
+            else:
+                result_win = await did_player_win(puuid, previous_match_details)
+                await payout_winners(active_bets[puuid], result_win)
+                await send_match_end_discord_message(account, result_win, active_bets[puuid])
         active_bets.pop(puuid)
 
     cached_league_of_legends_games[puuid] = {
