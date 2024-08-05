@@ -359,7 +359,7 @@ async def process_league_of_legends_account(account: LeagueOfLegendsAccount):
                                                        puuid) and puuid in active_bets:
         logging.info(f"Match ended for puuid {puuid}")
         if len(active_bets[puuid]['bets']) > 0:
-            did_remake_happen = previous_match_details['participants'][0]['gameEndedInEarlySurrender']
+            did_remake_happen = previous_match_info['participants'][0]['gameEndedInEarlySurrender']
             if did_remake_happen:
                 await refund_bets(active_bets[puuid])
                 logging.info(f"Remake happened for puuid {puuid}")
