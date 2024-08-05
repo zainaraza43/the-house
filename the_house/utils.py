@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import time
+from datetime import datetime
 
 import aiohttp
 import discord
@@ -14,7 +15,11 @@ from services import services
 bot = services.bot
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(funcName)s - %(lineno)d - %(message)s'
+    format='%(asctime)s - %(funcName)s - %(lineno)d - %(message)s',
+    handlers=[
+        logging.FileHandler("debug_log.log"),
+        logging.StreamHandler()
+    ]
 )
 
 CONTINENT_TO_REGION = {
@@ -39,25 +44,20 @@ CONTINENT_TO_REGION = {
 
 cached_league_of_legends_games = {}
 active_bets = {}
+last_execution_date = datetime.utcnow().date()
 
 
 def create_user(discord_account_id: int):
     db = services.db
-    existing_user = db.query(User).filter_by(discord_account_id=discord_account_id).first()
-    if existing_user:
-        logging.info(f"User with discord_account_id {discord_account_id} already exists.")
-        return existing_user
+    user = User(discord_account_id=discord_account_id)
+    db.add(user)
+    db.commit()
+    return user
 
-    new_user = User(discord_account_id=discord_account_id)
-    db.add(new_user)
-    try:
-        db.commit()
-        logging.info(f"Created new user with discord_account_id {discord_account_id}.")
-    except Exception as e:
-        db.rollback()
-        logging.error(f"Error creating user: {e}")
-        raise
-    return new_user
+
+def get_user_by_user_table_id(user_id: int):
+    db = services.db
+    return db.query(User).filter(User.id == user_id).first()
 
 
 def get_user_by_discord_account_id(discord_account_id: int):
@@ -131,6 +131,17 @@ def set_bank_coins(user_id: int, guild_id: int, coins: int):
         db.commit()
     else:
         logging.error(f"Bank not found for user_id {user_id} and guild_id {guild_id}")
+
+
+def get_banks_sorted_by_coins_for_guild(guild_id: int) -> list:
+    db = services.db
+    sorted_banks = (
+        db.query(Bank)
+        .filter(Bank.guild_id == guild_id)
+        .order_by(Bank.coins.desc())
+        .all()
+    )
+    return sorted_banks
 
 
 async def fetch_json(url):
@@ -214,31 +225,63 @@ async def calculate_odds(puuid: str, region: str, queue_id=int) -> tuple:
 
 
 async def did_player_win(puuid: str, completed_match_details: dict) -> bool:
-    for participant in completed_match_details['info']['participants']:
+    logging.info("Checking if player won the match")
+    logging.info(f"Player PUUID: {puuid}")
+
+    participants = completed_match_details.get('info', {}).get('participants', [])
+    logging.info(f"Number of participants in match: {len(participants)}")
+
+    for participant in participants:
+        logging.debug(f"Checking participant PUUID: {participant['puuid']}")
+
         if participant['puuid'] == puuid:
+            if participant['win']:
+                logging.info(f"Player {puuid} won the match")
+            else:
+                logging.info(f"Player {puuid} lost the match")
+
             return participant['win']
+
+    logging.warning(f"Player with PUUID {puuid} not found in match participants")
     return False
 
 
 async def payout_winners(player_bets: dict, result_win: bool):
+    logging.info(f"player_bets={player_bets}, result_win={result_win}")
     win_odds = player_bets['win_odds']
     lose_odds = player_bets['lose_odds']
+
+    logging.info("Starting payout process")
+    logging.info(f"Win odds: {win_odds}, Lose odds: {lose_odds}, Result win: {result_win}")
 
     for individual_bet in player_bets['bets']:
         payout = 0
         discord_id = individual_bet['discord_id']
+        server_id = individual_bet['server_id']
         wagered_amount = individual_bet['wagered_amount']
         wagered_win = individual_bet['wagered_win']
 
-        user = get_user_by_discord_account_id(discord_id)
-        bank = get_bank_by_user_and_guild(user.id, player_bets['server_id'])
+        logging.info(f"Processing bet for Discord ID: {discord_id}")
+        logging.info(f"Wagered amount: {wagered_amount}, Wagered win: {wagered_win}")
 
-        if wagered_win == result_win == True:
-            payout = wagered_amount * win_odds
-        elif wagered_win == result_win == False:
-            payout = wagered_amount * lose_odds
+        user = get_user_by_user_table_id(discord_id)
+        bank = get_bank_by_user_and_guild(discord_id, server_id)
 
-        set_bank_coins(user.id, player_bets['server_id'], bank.coins + payout)
+        logging.info(f"Retrieved user with ID: {user.id}")
+        logging.info(f"Current bank coins: {bank.coins}")
+
+        if wagered_win == result_win:
+            payout = round(wagered_amount * (win_odds if wagered_win else lose_odds), 2)
+            logging.info(f"Bet result matches the game result. Calculated payout: {payout}")
+        else:
+            logging.info("Bet result does not match the game result. No payout.")
+
+        logging.info(f"Paying out {payout} coins to user ID: {user.id}")
+
+        set_bank_coins(user.id, server_id, bank.coins + payout)
+        logging.info(f"Updated bank coins for user ID: {user.id} to {bank.coins + payout}")
+
+    logging.info("Payout process completed")
 
 
 async def update_league_of_legends_accounts():
@@ -270,7 +313,7 @@ async def process_league_of_legends_account(account: LeagueOfLegendsAccount):
     try:
         live_match_details = await get_live_match_details(puuid, region)
     except Exception as e:
-        logging.error(f"Error getting live match details for puuid {puuid} in region {region}: {e}")
+        logging.warning(f"Could not get live match details for puuid {puuid}: {e}")
         live_match_details = {}
 
     # get ids of previous and live match
@@ -285,6 +328,7 @@ async def process_league_of_legends_account(account: LeagueOfLegendsAccount):
         queue_id = previous_match_info.get('queueId', None)
         game_start_time = live_match_details.get("gameStartTime", None)
         win_odds, lose_odds = await calculate_odds(puuid, region, queue_id=queue_id)
+        logging.info(f"queue_id={queue_id}, win_odds={win_odds}, lose_odds={lose_odds}")
         active_bets[puuid] = {
             'win_odds': win_odds,
             'lose_odds': lose_odds,
@@ -295,11 +339,12 @@ async def process_league_of_legends_account(account: LeagueOfLegendsAccount):
         logging.info(f"Sent match start message for puuid {puuid}")
 
     elif await league_of_legends_account_just_end_game(live_match_details, previous_match_details,
-                                                       puuid) and puuid in active_bets and active_bets[puuid][
-        'bets'] != []:
+                                                       puuid) and puuid in active_bets:
         logging.info(f"Match ended for puuid {puuid}")
-        result_win = await did_player_win(puuid, previous_match_details)
-        await payout_winners(active_bets[puuid], result_win)
+        if len(active_bets[puuid]['bets']) > 0:
+            result_win = await did_player_win(puuid, previous_match_details)
+            await payout_winners(active_bets[puuid], result_win)
+            await send_match_end_discord_message(account, result_win, active_bets[puuid])
         active_bets.pop(puuid)
 
     cached_league_of_legends_games[puuid] = {
@@ -312,12 +357,13 @@ async def league_of_legends_account_just_start_game(live_match_details: dict, pu
     if not live_match_details:
         return False
 
-    cached_player_matches = cached_league_of_legends_games[puuid]
+    cached_player_matches = cached_league_of_legends_games.get(puuid, None)
 
-    if not cached_player_matches or cached_player_matches['live_match_game_id'] == live_match_details['gameId']:
+    if not cached_player_matches or cached_player_matches.get('live_match_game_id', None) == live_match_details.get(
+            'gameId', None):
         return False
 
-    logging.info(f"live_match_details={live_match_details}, cached_player_matches={cached_player_matches}")
+    logging.info(f"cached_player_matches={cached_player_matches}")
     return True
 
 
@@ -326,18 +372,22 @@ async def league_of_legends_account_just_end_game(live_match_details: dict, prev
     if live_match_details:
         return False
 
-    cached_player_matches = cached_league_of_legends_games[puuid]
+    cached_player_matches = cached_league_of_legends_games.get(puuid, None)
 
-    if not cached_player_matches or cached_player_matches['previous_match_game_id'] == previous_match_details['gameId']:
+    if not cached_player_matches or cached_player_matches.get('live_match_game_id', None) == live_match_details.get(
+            'gameId', None):
         return False
 
-    logging.info(f"previous_match_details={previous_match_details}, cached_player_matches={cached_player_matches}")
+    logging.info(f"cached_player_matches={cached_player_matches}")
     return True
 
 
 def has_elapsed(start_time: int, end_time: int, minutes: int) -> bool:
-    time_difference_seconds = end_time - start_time
+    time_difference_seconds = (end_time - start_time) / 1000
     minutes_in_seconds = minutes * 60
+
+    logging.info(f"start_time={start_time}, end_time={end_time}, time_difference_seconds={time_difference_seconds}")
+
     return time_difference_seconds >= minutes_in_seconds
 
 
@@ -465,6 +515,40 @@ async def wallet(interaction: discord.Interaction):
     await interaction.followup.send(f'You have {bank.coins} {guild.currency} in your wallet.')
 
 
+@bot.tree.command(name="leaderboard", description="Check the leaderboard for the guild")
+async def leaderboard(interaction: discord.Interaction):
+    await interaction.response.defer()
+
+    guild = get_guild_by_guild_id(interaction.guild.id)
+    if not guild:
+        guild = create_guild(interaction.guild.id)
+
+    banks = get_banks_sorted_by_coins_for_guild(guild.id)
+
+    if not banks:
+        await interaction.followup.send("No banks found in this server.")
+        return
+
+    server_name = await bot.fetch_guild(guild.guild_id)
+
+    embed = discord.Embed(
+        title=f"{server_name} Leaderboard",
+        description=f"🏆 **Top users by {guild.currency}** 🏆",
+        color=discord.Color.gold()
+    )
+
+    for i, bank in enumerate(banks[:10]):
+        discord_user = await bot.fetch_user(bank.user.discord_account_id)
+        user_name = discord_user.display_name
+        embed.add_field(
+            name=f"{i + 1}. {user_name}",
+            value=f"{bank.coins} {guild.currency}",
+            inline=False
+        )
+
+    await interaction.followup.send(embed=embed)
+
+
 @bot.tree.command(name="bet", description="Bet on the outcome of the current game")
 async def bet(interaction: discord.Interaction, discord_user: discord.User):
     await interaction.response.defer(ephemeral=True)
@@ -475,7 +559,7 @@ async def bet(interaction: discord.Interaction, discord_user: discord.User):
     user = get_user_by_discord_account_id(interaction.user.id)
     if not user:
         logging.info(f"No user found for {interaction.user.id}. Creating new user.")
-        user = create_user(discord_user.id)
+        user = create_user(interaction.user.id)
 
     # Fetch or create the target user
     target_user = get_user_by_discord_account_id(discord_user.id)
@@ -717,7 +801,7 @@ async def send_match_start_discord_message(account: LeagueOfLegendsAccount, matc
         logging.error(f"An unexpected error occurred: {e}")
 
 
-async def send_match_end_discord_message(account: LeagueOfLegendsAccount, result_win: bool, bets_on_game: list,
+async def send_match_end_discord_message(account: LeagueOfLegendsAccount, result_win: bool, bet_info: dict,
                                          timeout=3):
     guild_id = account.guild.guild_id
     channel_id = account.guild.channel_id
@@ -735,15 +819,17 @@ async def send_match_end_discord_message(account: LeagueOfLegendsAccount, result
 
                 message = discord.Embed(title=f"Game ended for {riot_id}")
                 message.set_author(name=name, icon_url=pfp)
+                bets_list = bet_info['bets']
 
-                for individual_bet in bets_on_game:
-                    discord_user = await bot.fetch_user(individual_bet['discord_id'])
-                    currency = discord_user.guild.currency
+                for individual_bet in bets_list:
+                    user = get_user_by_user_table_id(individual_bet['discord_id'])
+                    discord_user = await bot.fetch_user(user.discord_account_id)
+                    currency = account.guild.currency
                     name = discord_user.display_name
                     wagered_amount = individual_bet['wagered_amount']
                     wagered_win = individual_bet['wagered_win']
-                    win_odds = individual_bet['win_odds']
-                    lose_odds = individual_bet['lose_odds']
+                    win_odds = bet_info['win_odds']
+                    lose_odds = bet_info['lose_odds']
 
                     logging.debug(f"Processing bet for user {name} (ID: {individual_bet['discord_id']}). "
                                   f"Wagered {wagered_amount} {currency} on {'Win' if wagered_win else 'Lose'}.")
@@ -751,14 +837,14 @@ async def send_match_end_discord_message(account: LeagueOfLegendsAccount, result
                     if wagered_win == result_win:
                         if result_win:
                             message.add_field(name=f"{name} bet",
-                                              value=f"{wagered_amount} {currency} on Win: Won **{wagered_amount * win_odds} {currency}**")
+                                              value=f"{wagered_amount} {currency} on Win: Won **{wagered_amount * win_odds} {currency}**", inline=False)
                         else:
                             message.add_field(name=f"{name} bet",
-                                              value=f"{wagered_amount} {currency} on Lose: Won **{wagered_amount * lose_odds} {currency}**")
+                                              value=f"{wagered_amount} {currency} on Lose: Won **{wagered_amount * lose_odds} {currency}**", inline=False)
                     else:
                         message.add_field(name=f"{name} bet",
                                           value=f"{wagered_amount} {currency} on {'Win' if wagered_win else 'Lose'}: "
-                                                f"Lost **{wagered_amount} {currency}**")
+                                                f"Lost **{wagered_amount} {currency}**", inline=False)
 
                 await asyncio.wait_for(channel.send(embed=message), timeout)
 
@@ -770,5 +856,32 @@ async def send_match_end_discord_message(account: LeagueOfLegendsAccount, result
 
 async def update_accounts():
     while True:
+        give_daily_coins()
         await update_league_of_legends_accounts()
         await asyncio.sleep(3)
+
+
+def is_new_day_utc() -> bool:
+    global last_execution_date
+    current_date = datetime.utcnow().date()
+
+    if last_execution_date is None or last_execution_date < current_date:
+        last_execution_date = current_date
+        return True
+
+    return False
+
+
+def give_daily_coins():
+    if is_new_day_utc():
+        logging.info("New day detected, distributing daily coins...")
+        db = services.db
+        banks = db.query(Bank).all()
+
+        for bank in banks:
+            bank.coins += 10
+            logging.debug(
+                f"Added 10 coins to user ID {bank.user_id} in guild ID {bank.guild_id}, new balance: {bank.coins}")
+        db.commit()
+
+        logging.info(f"Distributed 10 daily coins to {len(banks)} users.")
