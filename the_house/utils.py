@@ -44,7 +44,8 @@ active_bets = {}
 last_execution_date = datetime.utcnow().date()
 
 
-def calculate_sleep_times(num_accounts: int, requests_per_account: int = 3, max_requests_per_second: int = 20, max_requests_per_2_minutes: int = 100):
+def calculate_sleep_times(num_accounts: int, requests_per_account: int = 3, max_requests_per_second: int = 20,
+                          max_requests_per_2_minutes: int = 100):
     short_term_sleep = max(0.2, requests_per_account / max_requests_per_second)
 
     total_requests = num_accounts * requests_per_account
@@ -738,7 +739,8 @@ async def update_accounts():
         give_daily_coins()
         league_of_legends_accounts = get_all_league_of_legends_accounts()
         short_term_sleep, long_term_sleep = calculate_sleep_times(len(league_of_legends_accounts))
-        logging.info(f"short_term_sleep={short_term_sleep}, long_term_sleep={long_term_sleep}")
+        logging.info(
+            f"number of league of legends accounts ={len(league_of_legends_accounts)} short_term_sleep={short_term_sleep}, long_term_sleep={long_term_sleep}")
         await update_league_of_legends_accounts(short_term_sleep, league_of_legends_accounts)
         await asyncio.sleep(long_term_sleep)
 
