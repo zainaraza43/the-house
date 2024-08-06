@@ -9,7 +9,8 @@ from discord.ui import View, Button
 
 from models import LeagueOfLegendsAccount
 from services import services
-from the_house.db_utils import (
+
+from db_utils import (
     create_user,
     get_user_by_user_table_id,
     get_user_by_discord_account_id,
@@ -26,7 +27,7 @@ from the_house.db_utils import (
     get_all_league_of_legends_accounts
 )
 
-from the_house.lol_api_utils import (
+from lol_api_utils import (
     get_account_by_riot_id,
     get_account_info_by_puuid,
     get_summoner_by_puuid,
@@ -41,6 +42,23 @@ bot = services.bot
 cached_league_of_legends_games = {}
 active_bets = {}
 last_execution_date = datetime.utcnow().date()
+
+
+def calculate_sleep_times(num_accounts: int, requests_per_account: int = 3, max_requests_per_second: int = 20, max_requests_per_2_minutes: int = 100):
+    short_term_sleep = max(0.2, requests_per_account / max_requests_per_second)
+
+    total_requests = num_accounts * requests_per_account
+
+    total_processing_time = num_accounts * short_term_sleep
+
+    if total_requests > max_requests_per_2_minutes:
+        raise ValueError(f"Number of accounts exceeds the maximum requests allowed in 2 minutes")
+
+    additional_time_needed = (120 * total_requests / max_requests_per_2_minutes) - total_processing_time
+
+    long_term_sleep = max(0.0, additional_time_needed)
+
+    return short_term_sleep, long_term_sleep
 
 
 async def calculate_odds(puuid: str, region: str, queue_id=int) -> tuple:
@@ -140,13 +158,12 @@ async def refund_bets(player_bets: dict):
     logging.info("Refund process completed")
 
 
-async def update_league_of_legends_accounts():
-    accounts = get_all_league_of_legends_accounts()
-
-    logging.info("Current bets = " + str(active_bets))
+async def update_league_of_legends_accounts(short_sleep_time: float, accounts: list[LeagueOfLegendsAccount]):
+    logging.info(f"Current bets = {active_bets}")
 
     for account in accounts:
         try:
+            await asyncio.sleep(short_sleep_time)
             await process_league_of_legends_account(account)
         except Exception as e:
             logging.error(f"Error processing League of Legends account: {e}")
@@ -181,7 +198,7 @@ async def process_league_of_legends_account(account: LeagueOfLegendsAccount):
 
     if await league_of_legends_account_just_start_game(live_match_details, puuid):
         queue_id = previous_match_info.get('queueId', None)
-        game_start_time = live_match_details.get("gameStartTime", None)
+        game_start_time = time.time()
         win_odds, lose_odds = await calculate_odds(puuid, region, queue_id=queue_id)
         logging.info(f"queue_id={queue_id}, win_odds={win_odds}, lose_odds={lose_odds}")
         active_bets[puuid] = {
@@ -243,7 +260,7 @@ async def league_of_legends_account_just_end_game(live_match_details: dict, prev
 
 
 def has_elapsed(start_time: int, end_time: int, minutes: int) -> bool:
-    time_difference_seconds = (end_time - start_time) / 1000
+    time_difference_seconds = (end_time - start_time)
     minutes_in_seconds = minutes * 60
 
     logging.info(f"start_time={start_time}, end_time={end_time}, time_difference_seconds={time_difference_seconds}")
@@ -454,7 +471,7 @@ async def bet(interaction: discord.Interaction, discord_user: discord.User):
 
     # Check if the bet has expired
     game_start_time = betting_info_for_target_user.get('start_time')
-    current_time = int(time.time() * 1000)
+    current_time = int(time.time())
 
     logging.debug(f"Game start time: {game_start_time}, current time: {current_time}")
 
@@ -567,7 +584,7 @@ class BetView(View):
         logging.info(f"User {interaction.user.id} attempted to lock in a bet.")
 
         game_start_time = self.player_bets.get('start_time')
-        current_time = int(time.time() * 1000)
+        current_time = int(time.time())
 
         if has_elapsed(game_start_time, current_time, 4):
             logging.warning(f"Bet expired for user {interaction.user.id}. Game start time: {game_start_time}, current "
@@ -719,8 +736,11 @@ async def send_match_end_discord_message(account: LeagueOfLegendsAccount, result
 async def update_accounts():
     while True:
         give_daily_coins()
-        await update_league_of_legends_accounts()
-        await asyncio.sleep(3)
+        league_of_legends_accounts = get_all_league_of_legends_accounts()
+        short_term_sleep, long_term_sleep = calculate_sleep_times(len(league_of_legends_accounts))
+        logging.info(f"short_term_sleep={short_term_sleep}, long_term_sleep={long_term_sleep}")
+        await update_league_of_legends_accounts(short_term_sleep, league_of_legends_accounts)
+        await asyncio.sleep(long_term_sleep)
 
 
 def is_new_day_utc() -> bool:
