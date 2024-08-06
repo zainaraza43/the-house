@@ -575,6 +575,10 @@ class BetView(View):
         better_discord_id = interaction.user.id
         logging.info(f"Target Discord ID: {target_discord_id}, Better Discord ID: {better_discord_id}")
         if target_discord_id == better_discord_id:
+            await interaction.response.send_message(
+                "You cannot bet against yourself.",
+                ephemeral=True
+            )
             button.disabled = True
             return
         self.outcome_win = False
