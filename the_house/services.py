@@ -1,3 +1,4 @@
+import logging
 from functools import cached_property
 
 import discord
@@ -11,6 +12,15 @@ from models import Base
 engine = create_engine(DATABASE_URL, echo=True)
 Base.metadata.create_all(engine)
 SessionLocal = scoped_session(sessionmaker(autocommit=False, autoflush=False, bind=engine))
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(funcName)s - %(lineno)d - %(message)s',
+    handlers=[
+        logging.FileHandler("debug_log.log"),
+        logging.StreamHandler()
+    ]
+)
 
 
 class _Services:

@@ -9,18 +9,27 @@ from discord import app_commands
 from discord.ui import View, Button
 
 from config import RIOT_API_KEY
-from models import User, LeagueOfLegendsAccount, Guild, Bank
+from models import LeagueOfLegendsAccount
 from services import services
 
-bot = services.bot
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(funcName)s - %(lineno)d - %(message)s',
-    handlers=[
-        logging.FileHandler("debug_log.log"),
-        logging.StreamHandler()
-    ]
+from the_house.db_utils import (
+    create_user,
+    get_user_by_user_table_id,
+    get_user_by_discord_account_id,
+    create_guild,
+    create_bank,
+    get_bank_by_user_and_guild,
+    get_guild_by_guild_id,
+    set_lol_account,
+    get_lol_account,
+    set_bank_coins,
+    get_banks_sorted_by_coins_for_guild,
+    get_all_banks,
+    increment_multiple_bank_coins,
+    get_all_league_of_legends_accounts
 )
+
+bot = services.bot
 
 CONTINENT_TO_REGION = {
     "na1": "americas",
@@ -45,103 +54,6 @@ CONTINENT_TO_REGION = {
 cached_league_of_legends_games = {}
 active_bets = {}
 last_execution_date = datetime.utcnow().date()
-
-
-def create_user(discord_account_id: int):
-    db = services.db
-    user = User(discord_account_id=discord_account_id)
-    db.add(user)
-    db.commit()
-    return user
-
-
-def get_user_by_user_table_id(user_id: int):
-    db = services.db
-    return db.query(User).filter(User.id == user_id).first()
-
-
-def get_user_by_discord_account_id(discord_account_id: int):
-    db = services.db
-    return db.query(User).filter(User.discord_account_id == discord_account_id).first()
-
-
-def create_guild(guild_id: int):
-    db = services.db
-    guild = Guild(guild_id=guild_id)
-    db.add(guild)
-    db.commit()
-    return guild
-
-
-def create_bank(user_id: int, guild_id: int):
-    db = services.db
-    bank = Bank(user_id=user_id, guild_id=guild_id)
-    db.add(bank)
-    db.commit()
-    return bank
-
-
-def get_bank_by_user_and_guild(user_id: int, guild_id: int):
-    db = services.db
-    return db.query(Bank).filter_by(user_id=user_id, guild_id=guild_id).first()
-
-
-def get_guild_by_guild_id(guild_id: int):
-    db = services.db
-    return db.query(Guild).filter(Guild.guild_id == guild_id).first()
-
-
-def set_lol_account(user_id: int, guild_id: int, region: str, puuid: str):
-    db = services.db
-    existing_account = db.query(LeagueOfLegendsAccount).filter_by(
-        user_id=user_id,
-        guild_id=guild_id
-    ).first()
-
-    if existing_account:
-        existing_account.region = region
-        existing_account.puuid = puuid
-        db.commit()
-    else:
-        new_account = LeagueOfLegendsAccount(
-            user_id=user_id,
-            guild_id=guild_id,
-            region=region,
-            puuid=puuid
-        )
-        db.add(new_account)
-        db.commit()
-
-
-def get_lol_account(user_id: int, guild_id: int):
-    db = services.db
-    account = db.query(LeagueOfLegendsAccount).filter_by(
-        user_id=user_id,
-        guild_id=guild_id
-    ).first()
-
-    return account
-
-
-def set_bank_coins(user_id: int, guild_id: int, coins: int):
-    db = services.db
-    bank = db.query(Bank).filter_by(user_id=user_id, guild_id=guild_id).first()
-    if bank:
-        bank.coins = coins
-        db.commit()
-    else:
-        logging.error(f"Bank not found for user_id {user_id} and guild_id {guild_id}")
-
-
-def get_banks_sorted_by_coins_for_guild(guild_id: int) -> list:
-    db = services.db
-    sorted_banks = (
-        db.query(Bank)
-        .filter(Bank.guild_id == guild_id)
-        .order_by(Bank.coins.desc())
-        .all()
-    )
-    return sorted_banks
 
 
 async def fetch_json(url):
@@ -302,8 +214,7 @@ async def refund_bets(player_bets: dict):
 
 
 async def update_league_of_legends_accounts():
-    db = services.db
-    accounts = db.query(LeagueOfLegendsAccount).all()
+    accounts = get_all_league_of_legends_accounts()
 
     logging.info("Current bets = " + str(active_bets))
 
@@ -530,7 +441,7 @@ async def wallet(interaction: discord.Interaction):
     if not guild:
         guild = create_guild(interaction.guild.id)
 
-    bank = services.db.query(Bank).filter_by(user_id=user.id, guild_id=guild.id).first()
+    bank = get_bank_by_user_and_guild(user.id, guild.id)
     if not bank:
         bank = create_bank(user.id, guild.id)
 
@@ -620,7 +531,7 @@ async def bet(interaction: discord.Interaction, discord_user: discord.User):
 
     logging.debug(f"Game start time: {game_start_time}, current time: {current_time}")
 
-    if has_elapsed(game_start_time, current_time, 2):
+    if has_elapsed(game_start_time, current_time, 4):
         logging.info(f"Bet for {discord_user.display_name} has expired.")
         await interaction.followup.send(
             f"Bet for {discord_user.display_name} has expired.",
@@ -731,7 +642,7 @@ class BetView(View):
         game_start_time = self.player_bets.get('start_time')
         current_time = int(time.time() * 1000)
 
-        if has_elapsed(game_start_time, current_time, 2):
+        if has_elapsed(game_start_time, current_time, 4):
             logging.warning(f"Bet expired for user {interaction.user.id}. Game start time: {game_start_time}, current "
                             f"time: {current_time}.")
             await interaction.response.send_message(
@@ -859,10 +770,12 @@ async def send_match_end_discord_message(account: LeagueOfLegendsAccount, result
                     if wagered_win == result_win:
                         if result_win:
                             message.add_field(name=f"{name} bet",
-                                              value=f"{wagered_amount} {currency} on Win: Won **{wagered_amount * win_odds} {currency}**", inline=False)
+                                              value=f"{wagered_amount} {currency} on Win: Won **{wagered_amount * win_odds} {currency}**",
+                                              inline=False)
                         else:
                             message.add_field(name=f"{name} bet",
-                                              value=f"{wagered_amount} {currency} on Lose: Won **{wagered_amount * lose_odds} {currency}**", inline=False)
+                                              value=f"{wagered_amount} {currency} on Lose: Won **{wagered_amount * lose_odds} {currency}**",
+                                              inline=False)
                     else:
                         message.add_field(name=f"{name} bet",
                                           value=f"{wagered_amount} {currency} on {'Win' if wagered_win else 'Lose'}: "
@@ -897,13 +810,6 @@ def is_new_day_utc() -> bool:
 def give_daily_coins():
     if is_new_day_utc():
         logging.info("New day detected, distributing daily coins...")
-        db = services.db
-        banks = db.query(Bank).all()
-
-        for bank in banks:
-            bank.coins += 10
-            logging.debug(
-                f"Added 10 coins to user ID {bank.user_id} in guild ID {bank.guild_id}, new balance: {bank.coins}")
-        db.commit()
-
+        banks = get_all_banks()
+        increment_multiple_bank_coins(banks, 10)
         logging.info(f"Distributed 10 daily coins to {len(banks)} users.")
