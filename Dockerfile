@@ -19,5 +19,8 @@ COPY . /app
 # Expose port (if your application serves on a specific port, e.g., 8000)
 EXPOSE 8000
 
+# Run tests
+RUN poetry run pytest --tb=short --disable-warnings
+
 # Specify the command to run the application
 CMD ["poetry", "run", "python", "the_house/main.py"]
