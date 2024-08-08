@@ -429,7 +429,8 @@ async def leaderboard(interaction: discord.Interaction):
 
 @bot.tree.command(name="help", description="Show all available commands")
 async def help_command(interaction: discord.Interaction):
-    embed = discord.Embed(title="Bot Commands", description="List of all available commands", color=discord.Color.blue())
+    embed = discord.Embed(title="Bot Commands", description="List of all available commands",
+                          color=discord.Color.blue())
 
     commands = {
         "set-betting-channel": "Set the betting channel",
@@ -443,6 +444,20 @@ async def help_command(interaction: discord.Interaction):
     for command, description in commands.items():
         embed.add_field(name=f"/{command}", value=description, inline=False)
 
+    await interaction.response.send_message(embed=embed)
+
+
+@bot.tree.command(name="report", description="Report an issue with the bot")
+async def report_command(interaction: discord.Interaction):
+    embed = discord.Embed(
+        title="Report an Issue",
+        description=(
+            "If you encounter any issues or have suggestions, please report them on our GitHub issues page. "
+            "You'll need to create a GitHub account if you don't have one already.\n\n"
+            "[GitHub Issues Page](https://github.com/zainaraza43/the-house/issues)"
+        ),
+        color=discord.Color.red()
+    )
     await interaction.response.send_message(embed=embed)
 
 
