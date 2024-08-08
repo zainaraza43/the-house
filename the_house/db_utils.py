@@ -1,5 +1,5 @@
-from models import User, LeagueOfLegendsAccount, Guild, Bank
-from services import services, logging
+from the_house.models import User, LeagueOfLegendsAccount, Guild, Bank
+from the_house.services import services, logging
 
 
 def create_user(discord_account_id: int):

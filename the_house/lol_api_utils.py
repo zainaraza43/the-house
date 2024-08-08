@@ -1,6 +1,6 @@
 import aiohttp
-from config import RIOT_API_KEY
-from services import logging
+from the_house.config import RIOT_API_KEY
+from the_house.services import logging
 
 CONTINENT_TO_REGION = {
     "na1": "americas",

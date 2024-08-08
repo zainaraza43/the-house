@@ -6,8 +6,8 @@ from discord.ext import commands
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session, scoped_session
 
-from config import DATABASE_URL
-from models import Base
+from the_house.config import DATABASE_URL
+from the_house.models import Base
 
 engine = create_engine(DATABASE_URL, echo=True)
 Base.metadata.create_all(engine)

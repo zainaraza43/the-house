@@ -7,10 +7,10 @@ import discord
 from discord import app_commands
 from discord.ui import View, Button
 
-from models import LeagueOfLegendsAccount
-from services import services
+from the_house.models import LeagueOfLegendsAccount
+from the_house.services import services
 
-from db_utils import (
+from the_house.db_utils import (
     create_user,
     get_user_by_user_table_id,
     get_user_by_discord_account_id,
@@ -27,7 +27,7 @@ from db_utils import (
     get_all_league_of_legends_accounts
 )
 
-from lol_api_utils import (
+from the_house.lol_api_utils import (
     get_account_by_riot_id,
     get_account_info_by_puuid,
     get_summoner_by_puuid,
