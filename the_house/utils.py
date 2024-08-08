@@ -438,9 +438,12 @@ async def help_command(interaction: discord.Interaction):
         "set-league-of-legends-account": "Set a linked League of Legends account (one per Discord user)",
         "wallet": "Check the amount of currency in your wallet",
         "leaderboard": "Check the leaderboard for the guild",
-        "bet": "Bet on the outcome of the current game (expires after 4 minutes)"
+        "bet": "Bet on the outcome of the current game (expires after 4 minutes)",
+        "report": "Report an issue with the bot"
     }
-
+    embed.add_field(name="Profile picture icon created by Ralf Schmitzer - Flaticon", value="https://www.flaticon.com"
+                                                                                            "/free-icons/groupier?",
+                    inline=False)
     for command, description in commands.items():
         embed.add_field(name=f"/{command}", value=description, inline=False)
 
