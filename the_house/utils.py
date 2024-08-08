@@ -427,6 +427,25 @@ async def leaderboard(interaction: discord.Interaction):
     await interaction.followup.send(embed=embed)
 
 
+@bot.tree.command(name="help", description="Show all available commands")
+async def help_command(interaction: discord.Interaction):
+    embed = discord.Embed(title="Bot Commands", description="List of all available commands", color=discord.Color.blue())
+
+    commands = {
+        "set-betting-channel": "Set the betting channel",
+        "set-currency": "Set the currency for the guild",
+        "set-league-of-legends-account": "Set a linked League of Legends account (one per Discord user)",
+        "wallet": "Check the amount of currency in your wallet",
+        "leaderboard": "Check the leaderboard for the guild",
+        "bet": "Bet on the outcome of the current game (expires after 4 minutes)"
+    }
+
+    for command, description in commands.items():
+        embed.add_field(name=f"/{command}", value=description, inline=False)
+
+    await interaction.response.send_message(embed=embed)
+
+
 @bot.tree.command(name="bet", description="Bet on the outcome of the current game")
 async def bet(interaction: discord.Interaction, discord_user: discord.User):
     await interaction.response.defer(ephemeral=True)
