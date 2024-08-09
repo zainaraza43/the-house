@@ -686,7 +686,8 @@ class BetButtonView(View):
 
     @discord.ui.button(label="Place Bet", style=discord.ButtonStyle.primary)
     async def place_bet_button(self, interaction: discord.Interaction, button: Button):
-        discord_user = await bot.fetch_user(interaction.user.id)
+        interaction.response.defer()
+        discord_user = await bot.fetch_user(self.account.user.discord_account_id)
         view = await create_bet_view(interaction, discord_user)
         if view:
             await interaction.response.send_message("Place your bet:", view=view, ephemeral=True)
