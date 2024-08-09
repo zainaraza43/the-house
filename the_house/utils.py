@@ -2,6 +2,7 @@ import asyncio
 import logging
 import time
 from datetime import datetime
+from typing import Optional
 
 import discord
 from discord import app_commands
@@ -468,62 +469,11 @@ async def report_command(interaction: discord.Interaction):
 async def bet(interaction: discord.Interaction, discord_user: discord.User):
     await interaction.response.defer(ephemeral=True)
 
-    logging.info(f"Received bet command from user {interaction.user.id} for target user {discord_user.id}")
+    view = await create_bet_view(interaction, discord_user)
 
-    # Fetch or create the user
-    user = get_user_by_discord_account_id(interaction.user.id)
-    if not user:
-        logging.info(f"No user found for {interaction.user.id}. Creating new user.")
-        user = create_user(interaction.user.id)
-
-    # Fetch or create the target user
-    target_user = get_user_by_discord_account_id(discord_user.id)
-    if not target_user:
-        logging.info(f"No target user found for {discord_user.id}. Creating new user.")
-        target_user = create_user(discord_user.id)
+    if not view:
         return
 
-    # Fetch the guild information
-    guild = get_guild_by_guild_id(interaction.guild.id)
-    logging.debug(f"Retrieved guild information for {interaction.guild.id}: {guild}")
-
-    # Get the League of Legends account for the target user
-    target_league_of_legends_account = get_lol_account(target_user.id, guild.id)
-    if not target_league_of_legends_account:
-        logging.warning(f"Target user {discord_user.display_name} does not have a League of Legends account set.")
-        await interaction.followup.send(
-            f"{discord_user.display_name} does not have a League of Legends account set.",
-            ephemeral=True
-        )
-        return
-
-    # Check for active bets
-    betting_info_for_target_user = active_bets.get(target_league_of_legends_account.puuid, None)
-    if not betting_info_for_target_user:
-        logging.warning(f"Target user {discord_user.display_name} does not have an active bet.")
-        await interaction.followup.send(
-            f"{discord_user.display_name} does not have an active bet.",
-            ephemeral=True
-        )
-        return
-
-    # Check if the bet has expired
-    game_start_time = betting_info_for_target_user.get('start_time')
-    current_time = int(time.time())
-
-    logging.debug(f"Game start time: {game_start_time}, current time: {current_time}")
-
-    if has_elapsed(game_start_time, current_time, 4):
-        logging.info(f"Bet for {discord_user.display_name} has expired.")
-        await interaction.followup.send(
-            f"Bet for {discord_user.display_name} has expired.",
-            ephemeral=True
-        )
-        return
-
-    # Create a bet view and send it to the user
-    view = BetView(account=target_league_of_legends_account, player_bets=betting_info_for_target_user)
-    logging.info(f"Sending bet view to user {interaction.user.id}")
     await interaction.followup.send("Place your bet:", view=view, ephemeral=True)
 
 
@@ -669,6 +619,81 @@ class BetView(View):
             )
 
 
+async def create_bet_view(interaction: discord.Interaction, discord_user: discord.User) -> Optional[BetView]:
+    logging.info(f"Received bet command from user {interaction.user.id} for target user {discord_user.id}")
+
+    # Fetch or create the user
+    user = get_user_by_discord_account_id(interaction.user.id)
+    if not user:
+        logging.info(f"No user found for {interaction.user.id}. Creating new user.")
+        user = create_user(interaction.user.id)
+
+    # Fetch or create the target user
+    target_user = get_user_by_discord_account_id(discord_user.id)
+    if not target_user:
+        logging.info(f"No target user found for {discord_user.id}. Creating new user.")
+        target_user = create_user(discord_user.id)
+        return
+
+    # Fetch the guild information
+    guild = get_guild_by_guild_id(interaction.guild.id)
+    logging.debug(f"Retrieved guild information for {interaction.guild.id}: {guild}")
+
+    # Get the League of Legends account for the target user
+    target_league_of_legends_account = get_lol_account(target_user.id, guild.id)
+    if not target_league_of_legends_account:
+        logging.warning(f"Target user {discord_user.display_name} does not have a League of Legends account set.")
+        await interaction.followup.send(
+            f"{discord_user.display_name} does not have a League of Legends account set.",
+            ephemeral=True
+        )
+        return
+
+    # Check for active bets
+    betting_info_for_target_user = active_bets.get(target_league_of_legends_account.puuid, None)
+    if not betting_info_for_target_user:
+        logging.warning(f"Target user {discord_user.display_name} does not have an active bet.")
+        await interaction.followup.send(
+            f"{discord_user.display_name} does not have an active bet.",
+            ephemeral=True
+        )
+        return
+
+    # Check if the bet has expired
+    game_start_time = betting_info_for_target_user.get('start_time')
+    current_time = int(time.time())
+
+    logging.debug(f"Game start time: {game_start_time}, current time: {current_time}")
+
+    if has_elapsed(game_start_time, current_time, 4):
+        logging.info(f"Bet for {discord_user.display_name} has expired.")
+        await interaction.followup.send(
+            f"Bet for {discord_user.display_name} has expired.",
+            ephemeral=True
+        )
+        return
+
+    # Create a bet view and send it to the user
+    view = BetView(account=target_league_of_legends_account, player_bets=betting_info_for_target_user)
+    logging.info(f"Sending bet view to user {interaction.user.id}")
+    return view
+
+
+class BetButtonView(View):
+    def __init__(self, account: LeagueOfLegendsAccount):
+        super().__init__(timeout=None)
+        self.account = account
+
+    @discord.ui.button(label="Place Bet", style=discord.ButtonStyle.primary)
+    async def place_bet_button(self, interaction: discord.Interaction, button: Button):
+        discord_user = await bot.fetch_user(interaction.user.id)
+        view = await create_bet_view(interaction, discord_user)
+        if view:
+            await interaction.response.send_message("Place your bet:", view=view, ephemeral=True)
+        else:
+            await interaction.response.send_message("Betting is not available right now.", ephemeral=True)
+
+
 async def send_match_start_discord_message(account: LeagueOfLegendsAccount, match_details, timeout=3):
     guild_id = account.guild.guild_id
     channel_id = account.guild.channel_id
@@ -710,8 +735,10 @@ async def send_match_start_discord_message(account: LeagueOfLegendsAccount, matc
                         message.add_field(name="Win odds", value=player_active_bets['win_odds'])
                         message.add_field(name="Lose odds", value=player_active_bets['lose_odds'])
 
+                        bet_view = BetButtonView(account)
+
                         logging.info("Sending message to channel")
-                        await asyncio.wait_for(channel.send(embed=message), timeout)
+                        await asyncio.wait_for(channel.send(embed=message, view=bet_view), timeout)
                         logging.info("Message sent successfully")
 
     except asyncio.TimeoutError:
