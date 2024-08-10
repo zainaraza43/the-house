@@ -524,7 +524,7 @@ class BetView(View):
     @discord.ui.button(label='1', style=discord.ButtonStyle.secondary, row=1)
     async def add1(self, interaction: discord.Interaction, button: Button):
         if self.current_operation_is_add:
-            self.amount += min(self.bank.coins, 1)
+            self.amount = min(self.bank.coins, self.amount + 1)
         else:
             self.amount = max(0, self.amount - 1)
         await self.update_message(interaction)
@@ -532,7 +532,7 @@ class BetView(View):
     @discord.ui.button(label='5', style=discord.ButtonStyle.secondary, row=1)
     async def add5(self, interaction: discord.Interaction, button: Button):
         if self.current_operation_is_add:
-            self.amount += min(self.bank.coins, 5)
+            self.amount = min(self.bank.coins, self.amount + 5)
         else:
             self.amount = max(0, self.amount - 5)
         await self.update_message(interaction)
@@ -540,7 +540,7 @@ class BetView(View):
     @discord.ui.button(label='10', style=discord.ButtonStyle.secondary, row=1)
     async def add10(self, interaction: discord.Interaction, button: Button):
         if self.current_operation_is_add:
-            self.amount += min(self.bank.coins, 10)
+            self.amount = min(self.bank.coins, self.amount + 10)
         else:
             self.amount = max(0, self.amount - 10)
         await self.update_message(interaction)
@@ -548,7 +548,7 @@ class BetView(View):
     @discord.ui.button(label='25', style=discord.ButtonStyle.secondary, row=1)
     async def add25(self, interaction: discord.Interaction, button: Button):
         if self.current_operation_is_add:
-            self.amount += min(self.bank.coins, 25)
+            self.amount = min(self.bank.coins, self.amount + 25)
         else:
             self.amount = max(0, self.amount - 25)
         await self.update_message(interaction)
