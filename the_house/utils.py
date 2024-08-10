@@ -469,12 +469,13 @@ async def report_command(interaction: discord.Interaction):
 async def bet(interaction: discord.Interaction, discord_user: discord.User):
     await interaction.response.defer(ephemeral=True)
 
-    view = await create_bet_view(interaction, discord_user)
+    can_create_ui, message = await can_create_bet_view(interaction, discord_user)
 
-    if not view:
-        return
-
-    await interaction.followup.send("Place your bet:", view=view, ephemeral=True)
+    if can_create_ui:
+        view = await create_bet_view(interaction, discord_user)
+        await interaction.followup.send("Place your bet:", view=view, ephemeral=True)
+    else:
+        await interaction.followup.send(message, ephemeral=True)
 
 
 class BetView(View):
@@ -620,7 +621,7 @@ class BetView(View):
             )
 
 
-async def create_bet_view(interaction: discord.Interaction, discord_user: discord.User) -> Optional[BetView]:
+async def can_create_bet_view(interaction: discord.Interaction, discord_user: discord.User) -> tuple[bool, str]:
     logging.info(f"Received bet command from user {interaction.user.id} for target user {discord_user.id}")
 
     # Fetch or create the user
@@ -632,37 +633,28 @@ async def create_bet_view(interaction: discord.Interaction, discord_user: discor
     # Fetch or create the target user
     target_user = get_user_by_discord_account_id(discord_user.id)
     if not target_user:
-        logging.info(f"No target user found for {discord_user.id}. Creating new user.")
-        target_user = create_user(discord_user.id)
-        return
+        error_message = (f"No target user found for {discord_user.id}. They do not have a League of Legends account "
+                         f"registered")
+        logging.info(error_message)
+        return False, error_message
 
-    # Fetch the guild information
+        # Fetch the guild information
     guild = get_guild_by_guild_id(interaction.guild.id)
     logging.debug(f"Retrieved guild information for {interaction.guild.id}: {guild}")
 
     # Get the League of Legends account for the target user
     target_league_of_legends_account = get_lol_account(target_user.id, guild.id)
     if not target_league_of_legends_account:
-        logging.warning(f"Target user {discord_user.display_name} does not have a League of Legends account set.")
-        await interaction.followup.send(
-            f"{discord_user.display_name} does not have a League of Legends account set.",
-            ephemeral=True
-        )
-        return
+        error_message = f"Target user {discord_user.display_name} does not have a League of Legends account set."
+        logging.warning(error_message)
+        return False, error_message
 
     # Check for active bets
     betting_info_for_target_user = active_bets.get(target_league_of_legends_account.puuid, None)
     if not betting_info_for_target_user:
-        logging.warning(f"Target user {discord_user.display_name} does not have an active bet.")
-        await interaction.followup.send(
-            f"{discord_user.display_name} does not have an active bet.",
-            ephemeral=True
-        )
-        return
-
-    bank = get_bank_by_user_and_guild(user.id, guild.id)
-    if not bank:
-        bank = create_bank(user.id, guild.id)
+        error_message = f"Target user {discord_user.display_name} does not have an active bet."
+        logging.warning(error_message)
+        return False, error_message
 
     # Check if the bet has expired
     game_start_time = betting_info_for_target_user.get('start_time')
@@ -671,17 +663,27 @@ async def create_bet_view(interaction: discord.Interaction, discord_user: discor
     logging.debug(f"Game start time: {game_start_time}, current time: {current_time}")
 
     if has_elapsed(game_start_time, current_time, 4):
-        logging.info(f"Bet for {discord_user.display_name} has expired.")
-        await interaction.followup.send(
-            f"Bet for {discord_user.display_name} has expired.",
-            ephemeral=True
-        )
-        return
+        error_message = f"Bet for {discord_user.display_name} has expired."
+        logging.info(error_message)
+        return False, error_message
 
-    # Create a bet view and send it to the user
+    logging.info(f"Sending bet view to user {interaction.user.id}")
+    return True, ""
+
+
+async def create_bet_view(interaction: discord.Interaction, discord_user: discord.User) -> BetView:
+    user = get_user_by_discord_account_id(interaction.user.id)
+    target_user = get_user_by_discord_account_id(discord_user.id)
+    guild = get_guild_by_guild_id(interaction.guild.id)
+    target_league_of_legends_account = get_lol_account(target_user.id, guild.id)
+    betting_info_for_target_user = active_bets.get(target_league_of_legends_account.puuid, None)
+
+    bank = get_bank_by_user_and_guild(user.id, guild.id)
+    if not bank:
+        bank = create_bank(user.id, guild.id)
+
     view = BetView(league_account=target_league_of_legends_account, player_bets=betting_info_for_target_user,
                    gambler_discord_account=user, gambler_bank=bank)
-    logging.info(f"Sending bet view to user {interaction.user.id}")
     return view
 
 
@@ -694,10 +696,14 @@ class BetButtonView(View):
     async def place_bet_button(self, interaction: discord.Interaction, button: Button):
         interaction.response.defer()
         discord_user = await bot.fetch_user(self.account.user.discord_account_id)
-        view = await create_bet_view(interaction, discord_user)
-        if not view:
-            return
-        await interaction.response.send_message("Place your bet:", view=view, ephemeral=True)
+
+        can_create_ui, message = await can_create_bet_view(interaction, discord_user)
+
+        if can_create_ui:
+            view = await create_bet_view(interaction, discord_user)
+            await interaction.response.send_message("Place your bet:", view=view, ephemeral=True)
+        else:
+            await interaction.response.send_message(message, ephemeral=True)
 
 
 async def send_match_start_discord_message(account: LeagueOfLegendsAccount, match_details, timeout=3):
