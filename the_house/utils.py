@@ -469,22 +469,25 @@ async def report_command(interaction: discord.Interaction):
 async def bet(interaction: discord.Interaction, discord_user: discord.User):
     await interaction.response.defer(ephemeral=True)
 
-    view = await create_bet_view(interaction, discord_user)
+    can_create_ui, message = await can_create_bet_view(interaction, discord_user)
 
-    if not view:
-        return
-
-    await interaction.followup.send("Place your bet:", view=view, ephemeral=True)
+    if can_create_ui:
+        view = await create_bet_view(interaction, discord_user)
+        await interaction.followup.send("Place your bet:", view=view, ephemeral=True)
+    else:
+        await interaction.followup.send(message, ephemeral=True)
 
 
 class BetView(View):
-    def __init__(self, account: LeagueOfLegendsAccount, player_bets):
+    def __init__(self, league_account: LeagueOfLegendsAccount, player_bets, gambler_discord_account, gambler_bank):
         super().__init__(timeout=None)
-        self.account = account
+        self.account = league_account
         self.player_bets = player_bets
         self.amount = 0
         self.current_operation_is_add = True
         self.outcome_win = None
+        self.user = gambler_discord_account
+        self.bank = gambler_bank
 
     async def update_message(self, interaction: discord.Interaction):
         self.amount_button.label = f"{self.amount}"
@@ -522,7 +525,7 @@ class BetView(View):
     @discord.ui.button(label='1', style=discord.ButtonStyle.secondary, row=1)
     async def add1(self, interaction: discord.Interaction, button: Button):
         if self.current_operation_is_add:
-            self.amount += 1
+            self.amount = min(self.bank.coins, self.amount + 1)
         else:
             self.amount = max(0, self.amount - 1)
         await self.update_message(interaction)
@@ -530,7 +533,7 @@ class BetView(View):
     @discord.ui.button(label='5', style=discord.ButtonStyle.secondary, row=1)
     async def add5(self, interaction: discord.Interaction, button: Button):
         if self.current_operation_is_add:
-            self.amount += 5
+            self.amount = min(self.bank.coins, self.amount + 5)
         else:
             self.amount = max(0, self.amount - 5)
         await self.update_message(interaction)
@@ -538,7 +541,7 @@ class BetView(View):
     @discord.ui.button(label='10', style=discord.ButtonStyle.secondary, row=1)
     async def add10(self, interaction: discord.Interaction, button: Button):
         if self.current_operation_is_add:
-            self.amount += 10
+            self.amount = min(self.bank.coins, self.amount + 10)
         else:
             self.amount = max(0, self.amount - 10)
         await self.update_message(interaction)
@@ -546,9 +549,14 @@ class BetView(View):
     @discord.ui.button(label='25', style=discord.ButtonStyle.secondary, row=1)
     async def add25(self, interaction: discord.Interaction, button: Button):
         if self.current_operation_is_add:
-            self.amount += 25
+            self.amount = min(self.bank.coins, self.amount + 25)
         else:
             self.amount = max(0, self.amount - 25)
+        await self.update_message(interaction)
+
+    @discord.ui.button(label='All In', style=discord.ButtonStyle.danger, row=1)
+    async def all_in(self, interaction: discord.Interaction, button: Button):
+        self.amount = self.bank.coins
         await self.update_message(interaction)
 
     @discord.ui.button(label='Win', style=discord.ButtonStyle.secondary, row=2)
@@ -587,21 +595,15 @@ class BetView(View):
             )
             return
 
-        user = get_user_by_discord_account_id(interaction.user.id)
-
-        bank = get_bank_by_user_and_guild(user.id, self.account.guild.id)
-        if not bank:
-            bank = create_bank(user.id, self.account.guild.id)
-
-        if 0 < self.amount <= bank.coins and self.outcome_win is not None:
+        if 0 < self.amount <= self.bank.coins and self.outcome_win is not None:
             wager = {
-                'discord_id': user.id,
+                'discord_id': self.user.id,
                 'server_id': self.account.guild.id,
                 'wagered_win': self.outcome_win,
                 'wagered_amount': self.amount
             }
             self.player_bets['bets'].append(wager)
-            set_bank_coins(user.id, self.account.guild.id, bank.coins - self.amount)
+            set_bank_coins(self.user.id, self.account.guild.id, self.bank.coins - self.amount)
             logging.info(
                 f"Bet locked in for user {interaction.user.id}: Amount: {self.amount} {self.account.guild.currency}, "
                 f"Outcome: {'Win' if self.outcome_win else 'Lose'}.")
@@ -619,7 +621,7 @@ class BetView(View):
             )
 
 
-async def create_bet_view(interaction: discord.Interaction, discord_user: discord.User) -> Optional[BetView]:
+async def can_create_bet_view(interaction: discord.Interaction, discord_user: discord.User) -> tuple[bool, str]:
     logging.info(f"Received bet command from user {interaction.user.id} for target user {discord_user.id}")
 
     # Fetch or create the user
@@ -631,33 +633,28 @@ async def create_bet_view(interaction: discord.Interaction, discord_user: discor
     # Fetch or create the target user
     target_user = get_user_by_discord_account_id(discord_user.id)
     if not target_user:
-        logging.info(f"No target user found for {discord_user.id}. Creating new user.")
-        target_user = create_user(discord_user.id)
-        return
+        error_message = (f"No target user found for {discord_user.id}. They do not have a League of Legends account "
+                         f"registered")
+        logging.info(error_message)
+        return False, error_message
 
-    # Fetch the guild information
+        # Fetch the guild information
     guild = get_guild_by_guild_id(interaction.guild.id)
     logging.debug(f"Retrieved guild information for {interaction.guild.id}: {guild}")
 
     # Get the League of Legends account for the target user
     target_league_of_legends_account = get_lol_account(target_user.id, guild.id)
     if not target_league_of_legends_account:
-        logging.warning(f"Target user {discord_user.display_name} does not have a League of Legends account set.")
-        await interaction.followup.send(
-            f"{discord_user.display_name} does not have a League of Legends account set.",
-            ephemeral=True
-        )
-        return
+        error_message = f"Target user {discord_user.display_name} does not have a League of Legends account set."
+        logging.warning(error_message)
+        return False, error_message
 
     # Check for active bets
     betting_info_for_target_user = active_bets.get(target_league_of_legends_account.puuid, None)
     if not betting_info_for_target_user:
-        logging.warning(f"Target user {discord_user.display_name} does not have an active bet.")
-        await interaction.followup.send(
-            f"{discord_user.display_name} does not have an active bet.",
-            ephemeral=True
-        )
-        return
+        error_message = f"Target user {discord_user.display_name} does not have an active bet."
+        logging.warning(error_message)
+        return False, error_message
 
     # Check if the bet has expired
     game_start_time = betting_info_for_target_user.get('start_time')
@@ -666,16 +663,27 @@ async def create_bet_view(interaction: discord.Interaction, discord_user: discor
     logging.debug(f"Game start time: {game_start_time}, current time: {current_time}")
 
     if has_elapsed(game_start_time, current_time, 4):
-        logging.info(f"Bet for {discord_user.display_name} has expired.")
-        await interaction.followup.send(
-            f"Bet for {discord_user.display_name} has expired.",
-            ephemeral=True
-        )
-        return
+        error_message = f"Bet for {discord_user.display_name} has expired."
+        logging.info(error_message)
+        return False, error_message
 
-    # Create a bet view and send it to the user
-    view = BetView(account=target_league_of_legends_account, player_bets=betting_info_for_target_user)
     logging.info(f"Sending bet view to user {interaction.user.id}")
+    return True, ""
+
+
+async def create_bet_view(interaction: discord.Interaction, discord_user: discord.User) -> BetView:
+    user = get_user_by_discord_account_id(interaction.user.id)
+    target_user = get_user_by_discord_account_id(discord_user.id)
+    guild = get_guild_by_guild_id(interaction.guild.id)
+    target_league_of_legends_account = get_lol_account(target_user.id, guild.id)
+    betting_info_for_target_user = active_bets.get(target_league_of_legends_account.puuid, None)
+
+    bank = get_bank_by_user_and_guild(user.id, guild.id)
+    if not bank:
+        bank = create_bank(user.id, guild.id)
+
+    view = BetView(league_account=target_league_of_legends_account, player_bets=betting_info_for_target_user,
+                   gambler_discord_account=user, gambler_bank=bank)
     return view
 
 
@@ -688,11 +696,14 @@ class BetButtonView(View):
     async def place_bet_button(self, interaction: discord.Interaction, button: Button):
         interaction.response.defer()
         discord_user = await bot.fetch_user(self.account.user.discord_account_id)
-        view = await create_bet_view(interaction, discord_user)
-        if view:
+
+        can_create_ui, message = await can_create_bet_view(interaction, discord_user)
+
+        if can_create_ui:
+            view = await create_bet_view(interaction, discord_user)
             await interaction.response.send_message("Place your bet:", view=view, ephemeral=True)
         else:
-            await interaction.response.send_message("Betting is not available right now.", ephemeral=True)
+            await interaction.response.send_message(message, ephemeral=True)
 
 
 async def send_match_start_discord_message(account: LeagueOfLegendsAccount, match_details, timeout=3):
