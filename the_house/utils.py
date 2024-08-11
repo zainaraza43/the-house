@@ -2,14 +2,10 @@ import asyncio
 import logging
 import time
 from datetime import datetime
-from typing import Optional
 
 import discord
 from discord import app_commands
 from discord.ui import View, Button
-
-from models import LeagueOfLegendsAccount
-from services import services
 
 from db_utils import (
     create_user,
@@ -27,7 +23,6 @@ from db_utils import (
     increment_multiple_bank_coins,
     get_all_league_of_legends_accounts
 )
-
 from lol_api_utils import (
     get_account_by_riot_id,
     get_account_info_by_puuid,
@@ -37,6 +32,8 @@ from lol_api_utils import (
     get_live_match_details,
     get_champion_icon
 )
+from models import LeagueOfLegendsAccount
+from services import services
 
 bot = services.bot
 
@@ -442,9 +439,6 @@ async def help_command(interaction: discord.Interaction):
         "bet": "Bet on the outcome of the current game (expires after 4 minutes)",
         "report": "Report an issue with the bot"
     }
-    embed.add_field(name="Profile picture icon created by Ralf Schmitzer - Flaticon", value="https://www.flaticon.com"
-                                                                                            "/free-icons/groupier?",
-                    inline=False)
     for command, description in commands.items():
         embed.add_field(name=f"/{command}", value=description, inline=False)
 
