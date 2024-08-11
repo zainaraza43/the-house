@@ -391,7 +391,7 @@ async def wallet(interaction: discord.Interaction):
     if not bank:
         bank = create_bank(user.id, guild.id)
 
-    await interaction.followup.send(f'You have {bank.coins} {guild.currency} in your wallet.')
+    await interaction.followup.send(f'You have {bank.coins:.2f} {guild.currency} in your wallet.')
 
 
 @bot.tree.command(name="leaderboard", description="Check the leaderboard for the guild")
@@ -421,7 +421,7 @@ async def leaderboard(interaction: discord.Interaction):
         user_name = discord_user.display_name
         embed.add_field(
             name=f"{i + 1}. {user_name}",
-            value=f"{bank.coins} {guild.currency}",
+            value=f"{bank.coins:.2f} {guild.currency}",
             inline=False
         )
 
@@ -490,7 +490,7 @@ class BetView(View):
         self.bank = gambler_bank
 
     async def update_message(self, interaction: discord.Interaction):
-        self.amount_button.label = f"{self.amount}"
+        self.amount_button.label = f"{self.amount:.2f}"
 
         if self.current_operation_is_add is True:
             self.add.style = discord.ButtonStyle.success
