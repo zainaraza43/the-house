@@ -90,6 +90,16 @@ def get_all_unique_puuids():
     return {result[0] for result in puuids}
 
 
+def get_region_by_puuid(puuid: str) -> str:
+    db = services.db
+    account = db.query(LeagueOfLegendsAccount).filter_by(puuid=puuid).first()
+
+    if account:
+        return account.region
+    else:
+        return ""
+
+
 def get_lol_accounts_by_guild_id(guild_id: int) -> list[LeagueOfLegendsAccount]:
     db = services.db
     return db.query(LeagueOfLegendsAccount).filter_by(guild_id=guild_id).all()
