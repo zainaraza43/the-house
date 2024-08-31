@@ -622,7 +622,7 @@ async def can_create_bet_view(interaction: discord.Interaction, discord_user: di
     user = get_user_by_discord_account_id(interaction.user.id)
     if not user:
         logging.info(f"No user found for {interaction.user.id}. Creating new user.")
-        user = create_user(interaction.user.id)
+        create_user(interaction.user.id)
 
     # Fetch or create the target user
     target_user = get_user_by_discord_account_id(discord_user.id)

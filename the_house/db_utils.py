@@ -78,6 +78,11 @@ def get_lol_account(user_id: int, guild_id: int):
     return account
 
 
+def get_lol_accounts_by_guild_id(guild_id: int) -> list[LeagueOfLegendsAccount]:
+    db = services.db
+    return db.query(LeagueOfLegendsAccount).filter_by(guild_id=guild_id).all()
+
+
 def get_all_league_of_legends_accounts() -> list[LeagueOfLegendsAccount]:
     db = services.db
     return db.query(LeagueOfLegendsAccount).all()
