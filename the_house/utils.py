@@ -776,7 +776,7 @@ async def send_match_end_discord_message(account: LeagueOfLegendsAccount, result
                 bets_list = bet_info['bets']
 
                 for individual_bet in bets_list:
-                    if individual_bet['guild_id'] == account.guild.id:
+                    if individual_bet['server_id'] == account.guild.id:
                         user = get_user_by_user_table_id(individual_bet['discord_id'])
                         discord_user = await bot.fetch_user(user.discord_account_id)
                         currency = account.guild.currency
