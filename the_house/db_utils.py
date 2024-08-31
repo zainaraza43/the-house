@@ -78,6 +78,18 @@ def get_lol_account(user_id: int, guild_id: int):
     return account
 
 
+def get_lol_accounts_by_puuid(puuid: str):
+    db = services.db
+    accounts = db.query(LeagueOfLegendsAccount).filter_by(puuid=puuid).all()
+    return accounts
+
+
+def get_all_unique_puuids():
+    db = services.db
+    puuids = db.query(LeagueOfLegendsAccount.puuid).distinct().all()
+    return {result[0] for result in puuids}
+
+
 def get_lol_accounts_by_guild_id(guild_id: int) -> list[LeagueOfLegendsAccount]:
     db = services.db
     return db.query(LeagueOfLegendsAccount).filter_by(guild_id=guild_id).all()
