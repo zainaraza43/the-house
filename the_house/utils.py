@@ -21,7 +21,7 @@ from db_utils import (
     get_banks_sorted_by_coins_for_guild,
     get_all_banks,
     increment_multiple_bank_coins,
-    get_all_league_of_legends_accounts, get_all_unique_puuids, get_region_by_puuid, get_lol_accounts_by_puuid
+    get_all_unique_puuids, get_region_by_puuid, get_lol_accounts_by_puuid
 )
 from lol_api_utils import (
     get_account_by_riot_id,
@@ -776,31 +776,32 @@ async def send_match_end_discord_message(account: LeagueOfLegendsAccount, result
                 bets_list = bet_info['bets']
 
                 for individual_bet in bets_list:
-                    user = get_user_by_user_table_id(individual_bet['discord_id'])
-                    discord_user = await bot.fetch_user(user.discord_account_id)
-                    currency = account.guild.currency
-                    name = discord_user.display_name
-                    wagered_amount = individual_bet['wagered_amount']
-                    wagered_win = individual_bet['wagered_win']
-                    win_odds = bet_info['win_odds']
-                    lose_odds = bet_info['lose_odds']
+                    if individual_bet['guild_id'] == account.guild.id:
+                        user = get_user_by_user_table_id(individual_bet['discord_id'])
+                        discord_user = await bot.fetch_user(user.discord_account_id)
+                        currency = account.guild.currency
+                        name = discord_user.display_name
+                        wagered_amount = individual_bet['wagered_amount']
+                        wagered_win = individual_bet['wagered_win']
+                        win_odds = bet_info['win_odds']
+                        lose_odds = bet_info['lose_odds']
 
-                    logging.debug(f"Processing bet for user {name} (ID: {individual_bet['discord_id']}). "
-                                  f"Wagered {wagered_amount} {currency} on {'Win' if wagered_win else 'Lose'}.")
+                        logging.debug(f"Processing bet for user {name} (ID: {individual_bet['discord_id']}). "
+                                      f"Wagered {wagered_amount} {currency} on {'Win' if wagered_win else 'Lose'}.")
 
-                    if wagered_win == result_win:
-                        if result_win:
-                            message.add_field(name=f"{name} bet",
-                                              value=f"{wagered_amount} {currency} on Win: Won **{wagered_amount * win_odds} {currency}**",
-                                              inline=False)
+                        if wagered_win == result_win:
+                            if result_win:
+                                message.add_field(name=f"{name} bet",
+                                                  value=f"{wagered_amount} {currency} on Win: Won **{wagered_amount * win_odds} {currency}**",
+                                                  inline=False)
+                            else:
+                                message.add_field(name=f"{name} bet",
+                                                  value=f"{wagered_amount} {currency} on Lose: Won **{wagered_amount * lose_odds} {currency}**",
+                                                  inline=False)
                         else:
                             message.add_field(name=f"{name} bet",
-                                              value=f"{wagered_amount} {currency} on Lose: Won **{wagered_amount * lose_odds} {currency}**",
-                                              inline=False)
-                    else:
-                        message.add_field(name=f"{name} bet",
-                                          value=f"{wagered_amount} {currency} on {'Win' if wagered_win else 'Lose'}: "
-                                                f"Lost **{wagered_amount} {currency}**", inline=False)
+                                              value=f"{wagered_amount} {currency} on {'Win' if wagered_win else 'Lose'}: "
+                                                    f"Lost **{wagered_amount} {currency}**", inline=False)
 
                 await asyncio.wait_for(channel.send(embed=message), timeout)
 
