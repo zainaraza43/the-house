@@ -21,7 +21,7 @@ from db_utils import (
     get_banks_sorted_by_coins_for_guild,
     get_all_banks,
     increment_multiple_bank_coins,
-    get_all_league_of_legends_accounts
+    get_all_unique_puuids, get_region_by_puuid, get_lol_accounts_by_puuid
 )
 from lol_api_utils import (
     get_account_by_riot_id,
@@ -157,21 +157,21 @@ async def refund_bets(player_bets: dict):
     logging.info("Refund process completed")
 
 
-async def update_league_of_legends_accounts(short_sleep_time: float, accounts: list[LeagueOfLegendsAccount]):
+async def update_league_of_legends_accounts(short_sleep_time: float, puuids: set[str]):
     logging.info(f"Current bets = {active_bets}")
 
-    for account in accounts:
+    for puuid in puuids:
         try:
             await asyncio.sleep(short_sleep_time)
-            await process_league_of_legends_account(account)
+            await process_league_of_legends_account(puuid)
         except Exception as e:
             logging.error(f"Error processing League of Legends account: {e}")
 
 
-async def process_league_of_legends_account(account: LeagueOfLegendsAccount):
+async def process_league_of_legends_account(puuid: str):
     # Account properties
-    puuid = account.puuid
-    region = account.region
+    region = get_region_by_puuid(puuid)
+    accounts = get_lol_accounts_by_puuid(puuid)
 
     # Get Previous Match ID
     match_ids = await get_match_ids_by_puuid(puuid=puuid, region=region, count=1)
@@ -206,8 +206,9 @@ async def process_league_of_legends_account(account: LeagueOfLegendsAccount):
             'start_time': game_start_time,
             'bets': []
         }
-        await send_match_start_discord_message(account, live_match_details)
-        logging.info(f"Sent match start message for puuid {puuid}")
+        for account in accounts:
+            await send_match_start_discord_message(account, live_match_details)
+            logging.info(f"Sent match start message for puuid {puuid}")
 
     elif await league_of_legends_account_just_end_game(live_match_details, previous_match_details,
                                                        puuid) and puuid in active_bets:
@@ -220,7 +221,8 @@ async def process_league_of_legends_account(account: LeagueOfLegendsAccount):
             else:
                 result_win = await did_player_win(puuid, previous_match_details)
                 await payout_winners(active_bets[puuid], result_win)
-                await send_match_end_discord_message(account, result_win, active_bets[puuid])
+                for account in accounts:
+                    await send_match_end_discord_message(account, result_win, active_bets[puuid])
         active_bets.pop(puuid)
 
     cached_league_of_legends_games[puuid] = {
@@ -774,31 +776,32 @@ async def send_match_end_discord_message(account: LeagueOfLegendsAccount, result
                 bets_list = bet_info['bets']
 
                 for individual_bet in bets_list:
-                    user = get_user_by_user_table_id(individual_bet['discord_id'])
-                    discord_user = await bot.fetch_user(user.discord_account_id)
-                    currency = account.guild.currency
-                    name = discord_user.display_name
-                    wagered_amount = individual_bet['wagered_amount']
-                    wagered_win = individual_bet['wagered_win']
-                    win_odds = bet_info['win_odds']
-                    lose_odds = bet_info['lose_odds']
+                    if individual_bet['server_id'] == account.guild.id:
+                        user = get_user_by_user_table_id(individual_bet['discord_id'])
+                        discord_user = await bot.fetch_user(user.discord_account_id)
+                        currency = account.guild.currency
+                        name = discord_user.display_name
+                        wagered_amount = individual_bet['wagered_amount']
+                        wagered_win = individual_bet['wagered_win']
+                        win_odds = bet_info['win_odds']
+                        lose_odds = bet_info['lose_odds']
 
-                    logging.debug(f"Processing bet for user {name} (ID: {individual_bet['discord_id']}). "
-                                  f"Wagered {wagered_amount} {currency} on {'Win' if wagered_win else 'Lose'}.")
+                        logging.debug(f"Processing bet for user {name} (ID: {individual_bet['discord_id']}). "
+                                      f"Wagered {wagered_amount} {currency} on {'Win' if wagered_win else 'Lose'}.")
 
-                    if wagered_win == result_win:
-                        if result_win:
-                            message.add_field(name=f"{name} bet",
-                                              value=f"{wagered_amount} {currency} on Win: Won **{wagered_amount * win_odds} {currency}**",
-                                              inline=False)
+                        if wagered_win == result_win:
+                            if result_win:
+                                message.add_field(name=f"{name} bet",
+                                                  value=f"{wagered_amount} {currency} on Win: Won **{wagered_amount * win_odds} {currency}**",
+                                                  inline=False)
+                            else:
+                                message.add_field(name=f"{name} bet",
+                                                  value=f"{wagered_amount} {currency} on Lose: Won **{wagered_amount * lose_odds} {currency}**",
+                                                  inline=False)
                         else:
                             message.add_field(name=f"{name} bet",
-                                              value=f"{wagered_amount} {currency} on Lose: Won **{wagered_amount * lose_odds} {currency}**",
-                                              inline=False)
-                    else:
-                        message.add_field(name=f"{name} bet",
-                                          value=f"{wagered_amount} {currency} on {'Win' if wagered_win else 'Lose'}: "
-                                                f"Lost **{wagered_amount} {currency}**", inline=False)
+                                              value=f"{wagered_amount} {currency} on {'Win' if wagered_win else 'Lose'}: "
+                                                    f"Lost **{wagered_amount} {currency}**", inline=False)
 
                 await asyncio.wait_for(channel.send(embed=message), timeout)
 
@@ -811,11 +814,12 @@ async def send_match_end_discord_message(account: LeagueOfLegendsAccount, result
 async def update_accounts():
     while True:
         give_daily_coins()
-        league_of_legends_accounts = get_all_league_of_legends_accounts()
-        short_term_sleep, long_term_sleep = calculate_sleep_times(len(league_of_legends_accounts))
+        unique_puuids = get_all_unique_puuids()
+        short_term_sleep, long_term_sleep = calculate_sleep_times(len(unique_puuids))
         logging.info(
-            f"number of league of legends accounts ={len(league_of_legends_accounts)} short_term_sleep={short_term_sleep}, long_term_sleep={long_term_sleep}")
-        await update_league_of_legends_accounts(short_term_sleep, league_of_legends_accounts)
+            f"number of unique league of legends accounts={len(unique_puuids)} short_term_sleep={short_term_sleep}, "
+            f"long_term_sleep={long_term_sleep}")
+        await update_league_of_legends_accounts(short_term_sleep, unique_puuids)
         await asyncio.sleep(long_term_sleep)
 
 
