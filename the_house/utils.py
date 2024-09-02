@@ -740,8 +740,8 @@ async def send_match_start_discord_message(account: LeagueOfLegendsAccount, matc
                         message = discord.Embed(title=f"Game started for {riot_id}")
                         message.set_author(name=name, icon_url=pfp)
                         message.set_thumbnail(url=champion_icon)
-                        message.add_field(name="Win odds", value=player_active_bets['win_odds'])
-                        message.add_field(name="Lose odds", value=player_active_bets['lose_odds'])
+                        message.add_field(name="Win multiplier", value=player_active_bets['win_odds'])
+                        message.add_field(name="Lose multiplier", value=player_active_bets['lose_odds'])
 
                         bet_view = BetButtonView(account)
 
