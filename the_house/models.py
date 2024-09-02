@@ -1,4 +1,6 @@
-from sqlalchemy import Column, Integer, BigInteger, ForeignKey, String, UniqueConstraint, Float
+from datetime import datetime
+
+from sqlalchemy import Column, Integer, BigInteger, ForeignKey, String, UniqueConstraint, Float, DateTime
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 
@@ -31,6 +33,9 @@ class Bank(Base):
     coins = Column(Float, default=50)
     user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
     guild_id = Column(Integer, ForeignKey('guilds.id'), nullable=False)
+    current_streak = Column(Integer, default=0)
+    max_streak = Column(Integer, default=0)
+    last_daily = Column(DateTime, default=datetime(1970, 1, 1))
 
     __table_args__ = (UniqueConstraint('user_id', 'guild_id', name='_user_guild_bank_uc'),)
 
