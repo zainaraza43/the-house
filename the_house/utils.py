@@ -404,7 +404,6 @@ async def daily(interaction: discord.Interaction):
     elif time_difference.total_seconds() > 172800 and bank.last_daily != datetime(1970, 1, 1):  # Greater than 48 hours and not first time
         bank.current_streak = 1
         streak_message = "You missed your daily reward for more than 48 hours. Your streak has been reset."
-        return
     else:
         bank.current_streak += 1
 
