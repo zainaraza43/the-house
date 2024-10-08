@@ -374,6 +374,60 @@ async def set_league_of_legends_account(interaction: discord.Interaction, region
             "An error occurred while setting the League of Legends account. Please try again later.")
 
 
+@bot.tree.command(name="daily", description="Get your daily amount of currency")
+async def daily(interaction: discord.Interaction):
+    await interaction.response.defer()
+
+    user = get_user_by_discord_account_id(interaction.user.id)
+    if not user:
+        user = create_user(interaction.user.id)
+
+    guild = get_guild_by_guild_id(interaction.guild.id)
+    if not guild:
+        guild = create_guild(interaction.guild.id)
+
+    bank = get_bank_by_user_and_guild(user.id, guild.id)
+    if not bank:
+        bank = create_bank(user.id, guild.id)
+
+    current_time = datetime.utcnow()
+    time_difference = current_time - bank.last_daily
+
+    if time_difference.total_seconds() < 86400:  # Less than 24 hours
+        remaining_time = 86400 - time_difference.total_seconds()
+        hours, remainder = divmod(remaining_time, 3600)
+        minutes, _ = divmod(remainder, 60)
+        await interaction.followup.send(
+            f"You've already claimed your daily coins! You can claim again in {int(hours)} hours and {int(minutes)} minutes."
+        )
+        return
+    elif time_difference.total_seconds() > 172800 and bank.last_daily != datetime(1970, 1, 1):  # Greater than 48 hours and not first time
+        bank.current_streak = 1
+        streak_message = "You missed your daily reward for more than 48 hours. Your streak has been reset."
+        return
+    else:
+        bank.current_streak += 1
+
+        if bank.current_streak > bank.max_streak:
+            bank.max_streak = bank.current_streak
+            streak_message = f"Congratulations! You're on your max streak of {bank.max_streak} days! Keep it up!"
+        else:
+            days_away = bank.max_streak - bank.current_streak
+            streak_message = f"Max streak is {bank.max_streak} days. You're {days_away} days away from reaching it again!"
+
+    coins_earned = bank.current_streak * 5
+    bank.coins += coins_earned
+
+    bank.last_daily = current_time
+
+    set_bank_coins(user.id, guild.id, bank.coins)
+    bank.last_daily = current_time
+
+    await interaction.followup.send(
+        f"You've earned {coins_earned} coins!\nYour current streak is {bank.current_streak} days.\n{streak_message}"
+    )
+
+
 @bot.tree.command(name="wallet", description="Check the amount of currency in your wallet")
 async def wallet(interaction: discord.Interaction):
     await interaction.response.defer()
@@ -813,7 +867,6 @@ async def send_match_end_discord_message(account: LeagueOfLegendsAccount, result
 
 async def update_accounts():
     while True:
-        give_daily_coins()
         unique_puuids = get_all_unique_puuids()
         short_term_sleep, long_term_sleep = calculate_sleep_times(len(unique_puuids))
         logging.info(
@@ -821,22 +874,3 @@ async def update_accounts():
             f"long_term_sleep={long_term_sleep}")
         await update_league_of_legends_accounts(short_term_sleep, unique_puuids)
         await asyncio.sleep(long_term_sleep)
-
-
-def is_new_day_utc() -> bool:
-    global last_execution_date
-    current_date = datetime.utcnow().date()
-
-    if last_execution_date is None or last_execution_date < current_date:
-        last_execution_date = current_date
-        return True
-
-    return False
-
-
-def give_daily_coins():
-    if is_new_day_utc():
-        logging.info("New day detected, distributing daily coins...")
-        banks = get_all_banks()
-        increment_multiple_bank_coins(banks, 10)
-        logging.info(f"Distributed 10 daily coins to {len(banks)} users.")
