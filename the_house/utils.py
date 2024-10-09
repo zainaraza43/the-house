@@ -398,7 +398,7 @@ async def daily(interaction: discord.Interaction):
         hours, remainder = divmod(remaining_time, 3600)
         minutes, _ = divmod(remainder, 60)
         await interaction.followup.send(
-            f"You've already claimed your daily coins! You can claim again in {int(hours)} hours and {int(minutes)} minutes."
+            f"You've already claimed your daily {guild.currency}! You can claim again in {int(hours)} hours and {int(minutes)} minutes."
         )
         return
     elif time_difference.total_seconds() > 172800 and bank.last_daily != datetime(1970, 1, 1):  # Greater than 48 hours and not first time
@@ -423,7 +423,7 @@ async def daily(interaction: discord.Interaction):
     bank.last_daily = current_time
 
     await interaction.followup.send(
-        f"You've earned {coins_earned} coins!\nYour current streak is {bank.current_streak} days.\n{streak_message}"
+        f"You've earned {coins_earned} {guild.currency}!\nYour current streak is {bank.current_streak} days.\n{streak_message}"
     )
 
 
