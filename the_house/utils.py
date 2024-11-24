@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import discord
 from discord import app_commands
@@ -391,22 +391,25 @@ async def daily(interaction: discord.Interaction):
         bank = create_bank(user.id, guild.id)
 
     current_time = datetime.utcnow()
-    time_difference = current_time - bank.last_daily
+    last_daily_date = bank.last_daily.date() if bank.last_daily != datetime(1970, 1, 1) else None
+    current_date = current_time.date()
 
-    if time_difference.total_seconds() < 86400:  # Less than 24 hours
-        remaining_time = 86400 - time_difference.total_seconds()
+    if last_daily_date == current_date:
+        # User has already claimed today
+        reset_time = datetime.combine(current_date + timedelta(days=1), datetime.min.time())  # Next day's midnight
+        remaining_time = (reset_time - current_time).total_seconds()
         hours, remainder = divmod(remaining_time, 3600)
         minutes, _ = divmod(remainder, 60)
         await interaction.followup.send(
             f"You've already claimed your daily {guild.currency}! You can claim again in {int(hours)} hours and {int(minutes)} minutes."
         )
         return
-    elif time_difference.total_seconds() > 172800 and bank.last_daily != datetime(1970, 1, 1):  # Greater than 48 hours and not first time
+    elif last_daily_date and (current_time - bank.last_daily).total_seconds() > 172800:
+        # Missed daily for more than 48 hours
         bank.current_streak = 1
         streak_message = "You missed your daily reward for more than 48 hours. Your streak has been reset."
     else:
         bank.current_streak += 1
-
         if bank.current_streak > bank.max_streak:
             bank.max_streak = bank.current_streak
             streak_message = f"Congratulations! You're on your max streak of {bank.max_streak} days! Keep it up!"
@@ -418,14 +421,11 @@ async def daily(interaction: discord.Interaction):
     bank.coins += coins_earned
 
     bank.last_daily = current_time
-
     set_bank_coins(user.id, guild.id, bank.coins)
-    bank.last_daily = current_time
 
     await interaction.followup.send(
         f"You've earned {coins_earned} {guild.currency}!\nYour current streak is {bank.current_streak} days.\n{streak_message}"
     )
-
 
 @bot.tree.command(name="wallet", aliases=['balance', 'bal', 'w'], description="Check the amount of currency in your wallet")
 async def wallet(interaction: discord.Interaction):
