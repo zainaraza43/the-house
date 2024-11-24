@@ -374,7 +374,7 @@ async def set_league_of_legends_account(interaction: discord.Interaction, region
             "An error occurred while setting the League of Legends account. Please try again later.")
 
 
-@bot.tree.command(name="daily", aliases=['d'], description="Get your daily amount of currency")
+@bot.tree.command(name="daily", description="Get your daily amount of currency")
 async def daily(interaction: discord.Interaction):
     await interaction.response.defer()
 
@@ -427,7 +427,7 @@ async def daily(interaction: discord.Interaction):
         f"You've earned {coins_earned} {guild.currency}!\nYour current streak is {bank.current_streak} days.\n{streak_message}"
     )
 
-@bot.tree.command(name="wallet", aliases=['balance', 'bal', 'w'], description="Check the amount of currency in your wallet")
+@bot.tree.command(name="wallet", description="Check the amount of currency in your wallet")
 async def wallet(interaction: discord.Interaction):
     await interaction.response.defer()
 
@@ -446,7 +446,7 @@ async def wallet(interaction: discord.Interaction):
     await interaction.followup.send(f'You have {bank.coins:.2f} {guild.currency} in your wallet.')
 
 
-@bot.tree.command(name="leaderboard", aliases=['lb'], description="Check the leaderboard for the guild")
+@bot.tree.command(name="leaderboard", description="Check the leaderboard for the guild")
 async def leaderboard(interaction: discord.Interaction):
     await interaction.response.defer()
 
