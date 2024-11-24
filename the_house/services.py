@@ -11,15 +11,13 @@ from models import Base
 
 engine = create_engine(DATABASE_URL, echo=True)
 Base.metadata.create_all(engine)
-SessionLocal = scoped_session(sessionmaker(autocommit=False, autoflush=False, bind=engine))
+SessionLocal = scoped_session(
+    sessionmaker(autocommit=False, autoflush=False, bind=engine)
+)
 
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(funcName)s - %(lineno)d - %(message)s',
-    handlers=[
-        logging.FileHandler("debug_log.log"),
-        logging.StreamHandler()
-    ]
+    format="%(asctime)s - %(funcName)s - %(lineno)d - %(message)s",
 )
 
 
@@ -32,7 +30,7 @@ class _Services:
     def bot(self) -> discord.Client:
         intents = discord.Intents.default()
         intents.message_content = True
-        bot = commands.Bot(command_prefix='!', intents=intents)
+        bot = commands.Bot(command_prefix="!", intents=intents)
 
         return bot
 
